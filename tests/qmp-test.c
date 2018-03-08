@@ -206,6 +206,8 @@ static bool query_is_blacklisted(const char *cmd)
         "query-pci",              /* CONFIG_PCI */
         /* Success depends on Host or Hypervisor SEV support */
         "query-sev",
+        /* Success depends on launching SEV guest */
+        "query-sev-launch-measure",
 
         NULL
     };
