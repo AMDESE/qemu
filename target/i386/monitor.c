@@ -731,5 +731,7 @@ SevCapability *qmp_query_sev_capabilities(Error **errp)
 void qmp_sev_set_launch_secret(const char *header, const char *data,
                                uint64_t address, Error **errp)
 {
-    error_setg(errp, "SEV is not enabled");
+    if (sev_inject_launch_secret(header, data, address)) {
+        error_setg(errp, "SEV failed to inject secret");
+    }
 }

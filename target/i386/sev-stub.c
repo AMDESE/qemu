@@ -49,3 +49,9 @@ SevCapability *sev_get_capabilities(void)
 {
     return NULL;
 }
+
+int sev_inject_launch_secret(const char *packet_hdr,
+                             const char *secret, uint64_t gpa)
+{
+    return 1;
+}

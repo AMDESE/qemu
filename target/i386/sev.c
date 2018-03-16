@@ -25,9 +25,13 @@
 #include "sysemu/sysemu.h"
 #include "trace.h"
 #include "migration/blocker.h"
+#include "exec/address-spaces.h"
+#include "hw/nvram/fw_cfg.h"
 
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
+
+#define SEV_LAUNCH_SECRET_FWCFG_FILE    "etc/sev-secret-addr"
 
 static SEVState *sev_state;
 static Error *sev_mig_blocker;
@@ -57,6 +61,11 @@ static const char *const sev_fw_errlist[] = {
     "Feature not supported",
     "Invalid parameter"
 };
+
+struct sev_launch_secret_fwcfg {
+    __u64 address;
+    __u32 length;
+} QEMU_PACKED __attribute((__aligned__(4)));
 
 #define SEV_FW_MAX_ERROR      ARRAY_SIZE(sev_fw_errlist)
 
@@ -800,6 +809,99 @@ sev_encrypt_data(void *handle, uint8_t *ptr, uint64_t len)
     }
 
     return 0;
+}
+
+static void *
+gpa2hva(hwaddr addr, uint64_t size)
+{
+    MemoryRegionSection mrs = memory_region_find(get_system_memory(),
+                                                 addr, size);
+
+    if (!mrs.mr) {
+        error_report("No memory is mapped at address 0x%" HWADDR_PRIx, addr);
+        return NULL;
+    }
+
+    if (!memory_region_is_ram(mrs.mr) && !memory_region_is_romd(mrs.mr)) {
+        error_report("Memory at address 0x%" HWADDR_PRIx "is not RAM", addr);
+        memory_region_unref(mrs.mr);
+        return NULL;
+    }
+
+    return qemu_map_ram_ptr(mrs.mr->ram_block, mrs.offset_within_region);
+}
+
+int sev_inject_launch_secret(const char *packet_hdr,
+                             const char *secret, uint64_t gpa)
+{
+    struct kvm_sev_launch_secret *input = NULL;
+    guchar *data = NULL, *hdr = NULL;
+    int error, ret = 1;
+    void *hva;
+    gsize hdr_sz = 0, data_sz = 0;
+    struct sev_launch_secret_fwcfg *secret_cfg;
+
+    if (!sev_state) {
+        return 1;
+    }
+
+    if (!sev_check_state(SEV_STATE_LAUNCH_SECRET)) {
+        error_report("Secret can not be injected, invalid state");
+        return 1;
+    }
+
+    hdr = g_base64_decode(packet_hdr, &hdr_sz);
+    if (!hdr || !hdr_sz) {
+        error_report("SEV: Failed to decode packet header");
+        return 1;
+    }
+
+    data = g_base64_decode(secret, &data_sz);
+    if (!data || !data_sz) {
+        error_report("SEV: Failed to decode data");
+        goto err;
+    }
+
+    hva = gpa2hva(gpa, data_sz);
+    if (!hva) {
+        goto err;
+    }
+
+    input = g_new0(struct kvm_sev_launch_secret, 1);
+
+    input->hdr_uaddr = (unsigned long)hdr;
+    input->hdr_len = hdr_sz;
+
+    input->trans_uaddr = (unsigned long)data;
+    input->trans_len = data_sz;
+
+    input->guest_uaddr = (unsigned long)hva;
+    input->guest_len = data_sz;
+
+    trace_kvm_sev_launch_secret(gpa, input->guest_uaddr,
+                                input->trans_uaddr, input->trans_len);
+
+    ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_LAUNCH_SECRET, input, &error);
+    if (ret) {
+        error_report("SEV: failed to inject secret ret=%d fw_error=%d '%s'",
+                     ret, error, fw_error_to_str(error));
+        goto err;
+    }
+
+    secret_cfg = g_new0(struct sev_launch_secret_fwcfg, 1);
+    secret_cfg->address = gpa & -TARGET_PAGE_SIZE;
+    secret_cfg->length = ROUND_UP(data_sz, TARGET_PAGE_SIZE);
+
+    fw_cfg_add_file(fw_cfg_find(), SEV_LAUNCH_SECRET_FWCFG_FILE,
+                    secret_cfg, sizeof(*secret_cfg));
+
+    ret = 0;
+
+err:
+    g_free(data);
+    g_free(hdr);
+    g_free(input);
+    return ret;
 }
 
 static void
