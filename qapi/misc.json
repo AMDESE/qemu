@@ -3364,3 +3364,20 @@
 #
 ##
 { 'command': 'query-sev-capabilities', 'returns': 'SevCapability' }
+
+##
+# @sev-set-launch-secret:
+#
+# The command is used to provide the secret blob to  SEV guest
+#
+# @header: packet header (encoded in base64)
+#
+# @data: the secret data blob (encoded in base64)
+#
+# @address: the guest physical address where secret blob should be injected
+#
+# Since: 2.12
+#
+##
+{ 'command': 'sev-set-launch-secret',
+  'data': { 'header': 'str', 'data': 'str', 'address' : 'uint64' }}

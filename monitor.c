@@ -986,6 +986,7 @@ static void qmp_unregister_commands_hack(void)
     qmp_unregister_command(&qmp_commands, "query-sev");
     qmp_unregister_command(&qmp_commands, "query-sev-launch-measure");
     qmp_unregister_command(&qmp_commands, "query-sev-capabilities");
+    qmp_unregister_command(&qmp_commands, "sev-set-launch-secret");
 #endif
 #ifndef TARGET_S390X
     qmp_unregister_command(&qmp_commands, "dump-skeys");
@@ -4124,6 +4125,13 @@ SevCapability *qmp_query_sev_capabilities(Error **errp)
     error_setg(errp, QERR_FEATURE_DISABLED, "query-sev-capabilities");
     return NULL;
 }
+
+void qmp_sev_set_launch_secret(const char *header, const char *data,
+                               uint64_t address, Error **errp)
+{
+    error_setg(errp, QERR_FEATURE_DISABLED, "sev-set-launch-secret");
+}
+
 #endif
 
 #ifndef TARGET_S390X
