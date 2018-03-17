@@ -99,16 +99,20 @@ static void tlb_info_pae32(Monitor *mon, CPUArchState *env)
     unsigned int l1, l2, l3;
     uint64_t pdpe, pde, pte;
     uint64_t pdp_addr, pd_addr, pt_addr;
+    uint64_t me_mask;
+
+    me_mask = sev_get_me_mask();
 
     pdp_addr = env->cr[3] & ~0x1f;
+    pdp_addr &= me_mask;
     for (l1 = 0; l1 < 4; l1++) {
         cpu_physical_memory_read_debug(pdp_addr + l1 * 8, &pdpe, 8);
-        pdpe = le64_to_cpu(pdpe);
+        pdpe = le64_to_cpu(pdpe & me_mask);
         if (pdpe & PG_PRESENT_MASK) {
             pd_addr = pdpe & 0x3fffffffff000ULL;
             for (l2 = 0; l2 < 512; l2++) {
                 cpu_physical_memory_read_debug(pd_addr + l2 * 8, &pde, 8);
-                pde = le64_to_cpu(pde);
+                pde = le64_to_cpu(pde & me_mask);
                 if (pde & PG_PRESENT_MASK) {
                     if (pde & PG_PSE_MASK) {
                         /* 2M pages with PAE, CR4.PSE is ignored */
@@ -119,7 +123,7 @@ static void tlb_info_pae32(Monitor *mon, CPUArchState *env)
                         for (l3 = 0; l3 < 512; l3++) {
                             cpu_physical_memory_read_debug(pt_addr + l3 * 8,
                                                            &pte, 8);
-                            pte = le64_to_cpu(pte);
+                            pte = le64_to_cpu(pte & me_mask);
                             if (pte & PG_PRESENT_MASK) {
                                 print_pte(mon, env, (l1 << 30) + (l2 << 21)
                                           + (l3 << 12),
@@ -141,10 +145,13 @@ static void tlb_info_la48(Monitor *mon, CPUArchState *env,
     uint64_t l1, l2, l3, l4;
     uint64_t pml4e, pdpe, pde, pte;
     uint64_t pdp_addr, pd_addr, pt_addr;
+    uint64_t me_mask;
+
+    me_mask = sev_get_me_mask();
 
     for (l1 = 0; l1 < 512; l1++) {
         cpu_physical_memory_read_debug(pml4_addr + l1 * 8, &pml4e, 8);
-        pml4e = le64_to_cpu(pml4e);
+        pml4e = le64_to_cpu(pml4e & me_mask);
         if (!(pml4e & PG_PRESENT_MASK)) {
             continue;
         }
@@ -152,7 +159,7 @@ static void tlb_info_la48(Monitor *mon, CPUArchState *env,
         pdp_addr = pml4e & 0x3fffffffff000ULL;
         for (l2 = 0; l2 < 512; l2++) {
             cpu_physical_memory_read_debug(pdp_addr + l2 * 8, &pdpe, 8);
-            pdpe = le64_to_cpu(pdpe);
+            pdpe = le64_to_cpu(pdpe & me_mask);
             if (!(pdpe & PG_PRESENT_MASK)) {
                 continue;
             }
@@ -167,7 +174,7 @@ static void tlb_info_la48(Monitor *mon, CPUArchState *env,
             pd_addr = pdpe & 0x3fffffffff000ULL;
             for (l3 = 0; l3 < 512; l3++) {
                 cpu_physical_memory_read_debug(pd_addr + l3 * 8, &pde, 8);
-                pde = le64_to_cpu(pde);
+                pde = le64_to_cpu(pde & me_mask);
                 if (!(pde & PG_PRESENT_MASK)) {
                     continue;
                 }
@@ -182,7 +189,7 @@ static void tlb_info_la48(Monitor *mon, CPUArchState *env,
                 pt_addr = pde & 0x3fffffffff000ULL;
                 for (l4 = 0; l4 < 512; l4++) {
                     cpu_physical_memory_read_debug(pt_addr + l4 * 8, &pte, 8);
-                    pte = le64_to_cpu(pte);
+                    pte = le64_to_cpu(pte & me_mask);
                     if (pte & PG_PRESENT_MASK) {
                         print_pte(mon, env, (l0 << 48) + (l1 << 39) +
                                 (l2 << 30) + (l3 << 21) + (l4 << 12),
@@ -199,11 +206,14 @@ static void tlb_info_la57(Monitor *mon, CPUArchState *env)
     uint64_t l0;
     uint64_t pml5e;
     uint64_t pml5_addr;
+    uint64_t me_mask;
 
-    pml5_addr = env->cr[3] & 0x3fffffffff000ULL;
+    me_mask = sev_get_me_mask();
+
+    pml5_addr = env->cr[3] & 0x3fffffffff000ULL & me_mask;
     for (l0 = 0; l0 < 512; l0++) {
         cpu_physical_memory_read_debug(pml5_addr + l0 * 8, &pml5e, 8);
-        pml5e = le64_to_cpu(pml5e);
+        pml5e = le64_to_cpu(pml5e & me_mask);
         if (pml5e & PG_PRESENT_MASK) {
             tlb_info_la48(mon, env, l0, pml5e & 0x3fffffffff000ULL);
         }
@@ -231,7 +241,8 @@ void hmp_info_tlb(Monitor *mon, const QDict *qdict)
             if (env->cr[4] & CR4_LA57_MASK) {
                 tlb_info_la57(mon, env);
             } else {
-                tlb_info_la48(mon, env, 0, env->cr[3] & 0x3fffffffff000ULL);
+                tlb_info_la48(mon, env, 0, env->cr[3] & 0x3fffffffff000ULL &
+                              sev_get_me_mask());
             }
         } else
 #endif
@@ -315,19 +326,22 @@ static void mem_info_pae32(Monitor *mon, CPUArchState *env)
     uint64_t pdpe, pde, pte;
     uint64_t pdp_addr, pd_addr, pt_addr;
     hwaddr start, end;
+    uint64_t me_mask;
 
-    pdp_addr = env->cr[3] & ~0x1f;
+    me_mask = sev_get_me_mask();
+
+    pdp_addr = env->cr[3] & ~0x1f & me_mask;
     last_prot = 0;
     start = -1;
     for (l1 = 0; l1 < 4; l1++) {
         cpu_physical_memory_read_debug(pdp_addr + l1 * 8, &pdpe, 8);
-        pdpe = le64_to_cpu(pdpe);
+        pdpe = le64_to_cpu(pdpe & me_mask);
         end = l1 << 30;
         if (pdpe & PG_PRESENT_MASK) {
             pd_addr = pdpe & 0x3fffffffff000ULL;
             for (l2 = 0; l2 < 512; l2++) {
                 cpu_physical_memory_read_debug(pd_addr + l2 * 8, &pde, 8);
-                pde = le64_to_cpu(pde);
+                pde = le64_to_cpu(pde & me_mask);
                 end = (l1 << 30) + (l2 << 21);
                 if (pde & PG_PRESENT_MASK) {
                     if (pde & PG_PSE_MASK) {
@@ -339,7 +353,7 @@ static void mem_info_pae32(Monitor *mon, CPUArchState *env)
                         for (l3 = 0; l3 < 512; l3++) {
                             cpu_physical_memory_read_debug(pt_addr + l3 * 8,
                                                            &pte, 8);
-                            pte = le64_to_cpu(pte);
+                            pte = le64_to_cpu(pte & me_mask);
                             end = (l1 << 30) + (l2 << 21) + (l3 << 12);
                             if (pte & PG_PRESENT_MASK) {
                                 prot = pte & pde & (PG_USER_MASK | PG_RW_MASK |
@@ -372,19 +386,22 @@ static void mem_info_la48(Monitor *mon, CPUArchState *env)
     uint64_t l1, l2, l3, l4;
     uint64_t pml4e, pdpe, pde, pte;
     uint64_t pml4_addr, pdp_addr, pd_addr, pt_addr, start, end;
+    uint64_t me_mask;
 
-    pml4_addr = env->cr[3] & 0x3fffffffff000ULL;
+    me_mask = sev_get_me_mask();
+
+    pml4_addr = env->cr[3] & 0x3fffffffff000ULL & me_mask;
     last_prot = 0;
     start = -1;
     for (l1 = 0; l1 < 512; l1++) {
         cpu_physical_memory_read_debug(pml4_addr + l1 * 8, &pml4e, 8);
-        pml4e = le64_to_cpu(pml4e);
+        pml4e = le64_to_cpu(pml4e & me_mask);
         end = l1 << 39;
         if (pml4e & PG_PRESENT_MASK) {
             pdp_addr = pml4e & 0x3fffffffff000ULL;
             for (l2 = 0; l2 < 512; l2++) {
                 cpu_physical_memory_read_debug(pdp_addr + l2 * 8, &pdpe, 8);
-                pdpe = le64_to_cpu(pdpe);
+                pdpe = le64_to_cpu(pdpe & me_mask);
                 end = (l1 << 39) + (l2 << 30);
                 if (pdpe & PG_PRESENT_MASK) {
                     if (pdpe & PG_PSE_MASK) {
@@ -397,7 +414,7 @@ static void mem_info_la48(Monitor *mon, CPUArchState *env)
                         for (l3 = 0; l3 < 512; l3++) {
                             cpu_physical_memory_read_debug(pd_addr + l3 * 8,
                                                            &pde, 8);
-                            pde = le64_to_cpu(pde);
+                            pde = le64_to_cpu(pde & me_mask);
                             end = (l1 << 39) + (l2 << 30) + (l3 << 21);
                             if (pde & PG_PRESENT_MASK) {
                                 if (pde & PG_PSE_MASK) {
@@ -411,7 +428,7 @@ static void mem_info_la48(Monitor *mon, CPUArchState *env)
                                         cpu_physical_memory_read_debug(pt_addr
                                                                   + l4 * 8,
                                                                   &pte, 8);
-                                        pte = le64_to_cpu(pte);
+                                        pte = le64_to_cpu(pte & me_mask);
                                         end = (l1 << 39) + (l2 << 30) +
                                             (l3 << 21) + (l4 << 12);
                                         if (pte & PG_PRESENT_MASK) {
@@ -450,13 +467,16 @@ static void mem_info_la57(Monitor *mon, CPUArchState *env)
     uint64_t l0, l1, l2, l3, l4;
     uint64_t pml5e, pml4e, pdpe, pde, pte;
     uint64_t pml5_addr, pml4_addr, pdp_addr, pd_addr, pt_addr, start, end;
+    uint64_t me_mask;
 
-    pml5_addr = env->cr[3] & 0x3fffffffff000ULL;
+    me_mask = sev_get_me_mask();
+
+    pml5_addr = env->cr[3] & 0x3fffffffff000ULL & me_mask;
     last_prot = 0;
     start = -1;
     for (l0 = 0; l0 < 512; l0++) {
         cpu_physical_memory_read_debug(pml5_addr + l0 * 8, &pml5e, 8);
-        pml5e = le64_to_cpu(pml5e);
+        pml5e = le64_to_cpu(pml5e & me_mask);
         end = l0 << 48;
         if (!(pml5e & PG_PRESENT_MASK)) {
             prot = 0;
@@ -467,7 +487,7 @@ static void mem_info_la57(Monitor *mon, CPUArchState *env)
         pml4_addr = pml5e & 0x3fffffffff000ULL;
         for (l1 = 0; l1 < 512; l1++) {
             cpu_physical_memory_read_debug(pml4_addr + l1 * 8, &pml4e, 8);
-            pml4e = le64_to_cpu(pml4e);
+            pml4e = le64_to_cpu(pml4e & me_mask);
             end = (l0 << 48) + (l1 << 39);
             if (!(pml4e & PG_PRESENT_MASK)) {
                 prot = 0;
@@ -478,7 +498,7 @@ static void mem_info_la57(Monitor *mon, CPUArchState *env)
             pdp_addr = pml4e & 0x3fffffffff000ULL;
             for (l2 = 0; l2 < 512; l2++) {
                 cpu_physical_memory_read_debug(pdp_addr + l2 * 8, &pdpe, 8);
-                pdpe = le64_to_cpu(pdpe);
+                pdpe = le64_to_cpu(pdpe & me_mask);
                 end = (l0 << 48) + (l1 << 39) + (l2 << 30);
                 if (pdpe & PG_PRESENT_MASK) {
                     prot = 0;
@@ -497,7 +517,7 @@ static void mem_info_la57(Monitor *mon, CPUArchState *env)
                 pd_addr = pdpe & 0x3fffffffff000ULL;
                 for (l3 = 0; l3 < 512; l3++) {
                     cpu_physical_memory_read_debug(pd_addr + l3 * 8, &pde, 8);
-                    pde = le64_to_cpu(pde);
+                    pde = le64_to_cpu(pde & me_mask);
                     end = (l0 << 48) + (l1 << 39) + (l2 << 30) + (l3 << 21);
                     if (pde & PG_PRESENT_MASK) {
                         prot = 0;
