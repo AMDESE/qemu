@@ -35,6 +35,7 @@
 
 static SEVState *sev_state;
 static Error *sev_mig_blocker;
+static MemoryRegionRAMReadWriteOps  sev_ops;
 
 static const char *const sev_fw_errlist[] = {
     "",
@@ -711,6 +712,46 @@ sev_vm_state_change(void *opaque, int running, RunState state)
     }
 }
 
+static int
+sev_dbg_enc_dec(uint8_t *dst, const uint8_t *src, uint32_t len, bool write)
+{
+    int ret, error;
+    struct kvm_sev_dbg dbg;
+
+    dbg.src_uaddr = (unsigned long)src;
+    dbg.dst_uaddr = (unsigned long)dst;
+    dbg.len = len;
+
+    trace_kvm_sev_debug(write ? "encrypt" : "decrypt", src, dst, len);
+    ret = sev_ioctl(sev_state->sev_fd,
+                    write ? KVM_SEV_DBG_ENCRYPT : KVM_SEV_DBG_DECRYPT,
+                    &dbg, &error);
+    if (ret) {
+        error_report("%s (%s) %#llx->%#llx+%#x ret=%d fw_error=%d '%s'",
+                     __func__, write ? "write" : "read", dbg.src_uaddr,
+                     dbg.dst_uaddr, dbg.len, ret, error,
+                     fw_error_to_str(error));
+    }
+
+    return ret;
+}
+
+static int
+sev_mem_read(uint8_t *dst, const uint8_t *src, uint32_t len, MemTxAttrs attrs)
+{
+    assert(attrs.debug);
+
+    return sev_dbg_enc_dec(dst, src, len, false);
+}
+
+static int
+sev_mem_write(uint8_t *dst, const uint8_t *src, uint32_t len, MemTxAttrs attrs)
+{
+    assert(attrs.debug);
+
+    return sev_dbg_enc_dec(dst, src, len, true);
+}
+
 void *
 sev_guest_init(const char *id)
 {
@@ -902,6 +943,22 @@ err:
     g_free(hdr);
     g_free(input);
     return ret;
+}
+
+void
+sev_set_debug_ops(void *handle, MemoryRegion *mr)
+{
+    SEVState *s = (SEVState *)handle;
+
+    /* If policy does not allow debug then no need to register ops */
+    if (s->policy & SEV_POLICY_NODBG) {
+        return;
+    }
+
+    sev_ops.read = sev_mem_read;
+    sev_ops.write = sev_mem_write;
+
+    memory_region_set_ram_debug_ops(mr, &sev_ops);
 }
 
 static void

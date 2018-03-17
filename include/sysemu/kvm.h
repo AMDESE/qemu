@@ -247,6 +247,14 @@ bool kvm_memcrypt_enabled(void);
  */
 int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len);
 
+/**
+ * kvm_memcrypt_set_debug_ram_ops: set debug_ram_ops callback
+ *
+ * When debug_ram_ops is set, debug access to this memory region will use
+ * memory encryption APIs.
+ */
+void kvm_memcrypt_set_debug_ops(MemoryRegion *mr);
+
 
 #ifdef NEED_CPU_H
 #include "cpu.h"
