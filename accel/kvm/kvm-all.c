@@ -383,7 +383,9 @@ static int kvm_mem_flags(MemoryRegion *mr)
         flags |= KVM_MEM_LOG_DIRTY_PAGES;
     }
     if (readonly && kvm_readonly_mem_allowed) {
-        flags |= KVM_MEM_READONLY;
+        if (!sev_es_enabled() || !memory_region_is_romd(mr)) {
+            flags |= KVM_MEM_READONLY;
+        }
     }
     return flags;
 }
