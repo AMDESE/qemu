@@ -2674,7 +2674,8 @@ static void pci_device_class_base_init(ObjectClass *klass, void *data)
     }
 }
 
-AddressSpace *pci_device_iommu_address_space(PCIDevice *dev)
+static void pci_device_get_iommu_bus_devfn(PCIDevice *dev,
+                              PCIBus **pbus, PCIBus **piommu_bus, uint8_t *pdevfn)
 {
     PCIBus *bus = pci_get_bus(dev);
     PCIBus *iommu_bus = bus;
@@ -2725,12 +2726,54 @@ AddressSpace *pci_device_iommu_address_space(PCIDevice *dev)
 
         iommu_bus = parent_bus;
     }
+    *pbus = iommu_bus;
+    *piommu_bus = iommu_bus;
+    *pdevfn = devfn;
+}
+
+AddressSpace *pci_device_iommu_address_space(PCIDevice *dev)
+{
+    PCIBus *bus;
+    PCIBus *iommu_bus;
+    uint8_t devfn;
+
+    pci_device_get_iommu_bus_devfn(dev, &bus, &iommu_bus, &devfn);
     if (!pci_bus_bypass_iommu(bus) && iommu_bus &&
         iommu_bus->iommu_ops && iommu_bus->iommu_ops->get_address_space) {
         return iommu_bus->iommu_ops->get_address_space(bus,
                                            iommu_bus->iommu_opaque, devfn);
     }
     return &address_space_memory;
+}
+
+int pci_device_set_iommu_device(PCIDevice *dev,
+                                 IOMMUFDDevice *idev)
+{
+    PCIBus *bus;
+    PCIBus *iommu_bus;
+    uint8_t devfn;
+
+    pci_device_get_iommu_bus_devfn(dev, &bus, &iommu_bus, &devfn);
+    if (!pci_bus_bypass_iommu(bus) && iommu_bus &&
+        iommu_bus->iommu_ops && iommu_bus->iommu_ops->set_iommu_device) {
+        return iommu_bus->iommu_ops->set_iommu_device(bus,
+                              iommu_bus->iommu_opaque, devfn, idev);
+    }
+    return 0;
+}
+
+void pci_device_unset_iommu_device(PCIDevice *dev)
+{
+    PCIBus *bus;
+    PCIBus *iommu_bus;
+    uint8_t devfn;
+
+    pci_device_get_iommu_bus_devfn(dev, &bus, &iommu_bus, &devfn);
+    if (!pci_bus_bypass_iommu(bus) && iommu_bus &&
+        iommu_bus->iommu_ops && iommu_bus->iommu_ops->unset_iommu_device) {
+        return iommu_bus->iommu_ops->unset_iommu_device(bus,
+                              iommu_bus->iommu_opaque, devfn);
+    }
 }
 
 void pci_setup_iommu(PCIBus *bus, const PCIIOMMUOps *ops, void *opaque)
