@@ -25,6 +25,7 @@
 #include "sysemu/sysemu.h"
 #include "trace.h"
 #include "migration/blocker.h"
+#include "sysemu/hw_accel.h"
 
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
@@ -616,7 +617,16 @@ sev_launch_update_data(uint8_t *addr, uint64_t len)
 static int
 sev_launch_update_vmsa(void)
 {
+    CPUState *c;
     int ret, fw_error;
+
+    CPU_FOREACH(c) {
+        if (c->cpu_index == 0)
+            continue;
+
+        kvm_arch_set_reset_vector(kvm_state, c);
+        cpu_synchronize_post_init(c);
+    }
 
     ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_LAUNCH_UPDATE_VMSA, NULL, &fw_error);
     if (ret) {
