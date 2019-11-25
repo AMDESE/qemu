@@ -49,3 +49,9 @@ SevCapability *sev_get_capabilities(void)
 {
     return NULL;
 }
+
+bool sev_es_enabled(void)
+{
+    return false;
+}
+
