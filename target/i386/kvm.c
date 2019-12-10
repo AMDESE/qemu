@@ -405,6 +405,21 @@ uint32_t kvm_arch_get_supported_cpuid(KVMState *s, uint32_t function,
     return ret;
 }
 
+void kvm_arch_set_reset_vector(KVMState *s, CPUState *cpu)
+{
+    X86CPU *x86 = X86_CPU(cpu);
+    CPUX86State *env = &x86->env;
+    unsigned int cs, ip;
+
+    cs = kvm_memcrypt_get_reset_vector_cs();
+    ip = kvm_memcrypt_get_reset_vector_ip();
+
+    cpu_x86_load_seg_cache(env, R_CS, 0xf000, cs, 0xffff,
+                           DESC_P_MASK | DESC_S_MASK | DESC_CS_MASK |
+                           DESC_R_MASK | DESC_A_MASK);
+    env->eip = ip;
+}
+
 typedef struct HWPoisonPage {
     ram_addr_t ram_addr;
     QLIST_ENTRY(HWPoisonPage) list;

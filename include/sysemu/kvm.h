@@ -246,6 +246,23 @@ bool kvm_memcrypt_enabled(void);
  */
 int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len);
 
+/**
+ * kvm_memcrypt_set_reset_vector - saves the reset vector to be used as the
+ *                                 initial CS/IP value for APs (SEV-ES)
+ */
+void kvm_memcrypt_set_reset_vector(uint32_t addr);
+
+/**
+ * kvm_memcrypt_get_reset_vector_cs - returns the CS segment value associated
+ *                                    with the reset vector for an AP (SEV-ES)
+ */
+int kvm_memcrypt_get_reset_vector_cs(void);
+
+/**
+ * kvm_memcrypt_get_reset_vector_ip - returns the IP value associated with the
+ *                                    reset vector for an AP (SEV-ES)
+ */
+int kvm_memcrypt_get_reset_vector_ip(void);
 
 #ifdef NEED_CPU_H
 #include "cpu.h"
@@ -463,6 +480,8 @@ int kvm_vm_check_extension(KVMState *s, unsigned int extension);
 
 uint32_t kvm_arch_get_supported_cpuid(KVMState *env, uint32_t function,
                                       uint32_t index, int reg);
+
+void kvm_arch_set_reset_vector(KVMState *env, CPUState *cpu);
 
 void kvm_set_sigmask_len(KVMState *s, unsigned int sigmask_len);
 
