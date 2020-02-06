@@ -1163,6 +1163,8 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
             env->msr_hv_synic_sint[i] = HV_SINT_MASKED;
         }
     }
+
+    kvm_memcrypt_set_reset_vector(CPU(cpu));
 }
 
 void kvm_arch_do_init_vcpu(X86CPU *cpu)
