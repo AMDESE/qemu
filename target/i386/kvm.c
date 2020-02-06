@@ -2871,6 +2871,10 @@ int kvm_arch_get_registers(CPUState *cs)
     if (ret < 0) {
         goto out;
     }
+    ret = kvm_get_apic(cpu);
+    if (ret < 0) {
+        goto out;
+    }
     /*
      * KVM_GET_MPSTATE can modify CS and RIP, call it before
      * KVM_GET_REGS and KVM_GET_SREGS.
@@ -2896,10 +2900,6 @@ int kvm_arch_get_registers(CPUState *cs)
         goto out;
     }
     ret = kvm_get_msrs(cpu);
-    if (ret < 0) {
-        goto out;
-    }
-    ret = kvm_get_apic(cpu);
     if (ret < 0) {
         goto out;
     }
