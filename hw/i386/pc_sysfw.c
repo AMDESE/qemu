@@ -38,6 +38,7 @@
 #include "sysemu/sysemu.h"
 #include "hw/block/flash.h"
 #include "sysemu/kvm.h"
+#include "sysemu/sev.h"
 
 /*
  * We don't have a theoretically justifiable exact lower bound on the base
@@ -49,6 +50,15 @@
 #define FLASH_SIZE_LIMIT (8 * MiB)
 
 #define FLASH_SECTOR_SIZE 4096
+
+/* SEV-ES Reset Block GUID = 00f771de-1a7e-4fcb-890e-68c77e2fb44e */
+#define SEV_ES_RESET_BLOCK_GUID "\xde\x71\xf7\x00\x7e\x1a\xcb\x4f\x89\x0e\x68\xc7\x7e\x2f\xb4\x4e"
+
+typedef struct __attribute__((__packed__)) SevEsResetBlock {
+    uint32_t addr;
+    uint16_t size;
+    char guid[16];
+} SevEsResetBlock;
 
 static void pc_isa_bios_init(MemoryRegion *rom_memory,
                              MemoryRegion *flash_mem,
@@ -200,6 +210,24 @@ static void pc_system_flash_map(PCMachineState *pcms,
             if (kvm_memcrypt_enabled()) {
                 flash_ptr = memory_region_get_ram_ptr(flash_mem);
                 flash_size = memory_region_size(flash_mem);
+
+                /* Extract the AP reset vector for SEV-ES guests */
+                if (sev_es_enabled()) {
+                    SevEsResetBlock *rb;
+
+                    /* The end of the SEV-ES reset block GUID is located
+                     * 32 bytes from the end of the flash. Use this to base
+                     * SEV-ES reset block address.
+                     */
+                    rb = flash_ptr + flash_size - 0x20 - sizeof(*rb);
+                    if (memcmp(rb->guid, SEV_ES_RESET_BLOCK_GUID, 16)) {
+                        error_report("SEV-ES reset block not found in pflash rom");
+                        exit(1);
+                    }
+
+                    kvm_memcrypt_save_reset_vector(rb->addr);
+                }
+
                 ret = kvm_memcrypt_encrypt_data(flash_ptr, flash_size);
                 if (ret) {
                     error_report("failed to encrypt pflash rom");

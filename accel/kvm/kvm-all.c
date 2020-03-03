@@ -39,6 +39,7 @@
 #include "qemu/main-loop.h"
 #include "trace.h"
 #include "hw/irq.h"
+#include "sysemu/kvm.h"
 #include "sysemu/sev.h"
 #include "sysemu/balloon.h"
 #include "qapi/visitor.h"
@@ -121,6 +122,10 @@ struct KVMState
     void *memcrypt_handle;
     int (*memcrypt_encrypt_data)(void *handle, uint8_t *ptr, uint64_t len);
 
+    unsigned int reset_cs;
+    unsigned int reset_ip;
+    bool reset_valid;
+
     /* For "info mtree -f" to tell if an MR is registered in KVM */
     int nr_as;
     struct KVMAs {
@@ -187,6 +192,42 @@ int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len)
     }
 
     return 1;
+}
+
+void kvm_memcrypt_set_reset_vector(CPUState *cpu)
+{
+    X86CPU *x86;
+    CPUX86State *env;
+
+    /* Only update if we have valid reset information */
+    if (!kvm_state->reset_valid)
+        return;
+
+    /* Do not update the BSP reset state */
+    if (cpu->cpu_index == 0)
+        return;
+
+    x86 = X86_CPU(cpu);
+    env = &x86->env;
+
+    cpu_x86_load_seg_cache(env, R_CS, 0xf000, kvm_state->reset_cs, 0xffff,
+                           DESC_P_MASK | DESC_S_MASK | DESC_CS_MASK |
+                           DESC_R_MASK | DESC_A_MASK);
+
+    env->eip = kvm_state->reset_ip;
+}
+
+void kvm_memcrypt_save_reset_vector(uint32_t addr)
+{
+    CPUState *cpu;
+
+    kvm_state->reset_cs = addr & 0xffff0000;
+    kvm_state->reset_ip = addr & 0x0000ffff;
+    kvm_state->reset_valid = true;
+
+    CPU_FOREACH(cpu) {
+	kvm_memcrypt_set_reset_vector(cpu);
+    }
 }
 
 /* Called with KVMMemoryListener.slots_lock held */
