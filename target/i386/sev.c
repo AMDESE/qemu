@@ -416,8 +416,18 @@ sev_enabled(void)
 }
 
 bool
+sev_snp_enabled(void)
+{
+    return (sev_enabled() && sev_state->is_snp);
+}
+
+bool
 sev_es_enabled(void)
 {
+    if (sev_snp_enabled()) {
+        return true;
+    }
+
     return (sev_enabled() && (sev_state->policy & GUEST_POLICY_SEV_ES_BIT));
 }
 
@@ -454,6 +464,7 @@ sev_get_info(void)
         info->policy = sev_state->policy;
         info->state = sev_state->state;
         info->handle = sev_state->handle;
+        info->snp = sev_state->is_snp;
     }
 
     return info;
@@ -561,6 +572,31 @@ sev_read_file_base64(const char *filename, guchar **data, gsize *len)
 }
 
 static int
+sev_snp_launch_start(SEVState *s)
+{
+    struct kvm_sev_snp_launch_start *start;
+    QSevGuestInfo *sev = s->sev_info;
+    int rc, fw_error;
+
+    start = g_new0(struct kvm_sev_snp_launch_start, 1);
+    start->policy = object_property_get_int(OBJECT(sev), "policy",
+                                            &error_abort);
+    trace_kvm_sev_snp_launch_start(start->policy);
+
+    rc = sev_ioctl(s->sev_fd, KVM_SEV_SNP_LAUNCH_START, start, &fw_error);
+    if (rc < 0) {
+        error_report("%s: LAUNCH_SNP_START ret=%d fw_error=%d '%s'",
+                __func__, rc, fw_error, fw_error_to_str(fw_error));
+        goto out;
+    }
+
+    sev_set_guest_state(SEV_STATE_SNP_GSTATE_LAUNCH);
+out:
+    g_free(start);
+    return rc;
+}
+
+static int
 sev_launch_start(SEVState *s)
 {
     gsize sz;
@@ -569,6 +605,10 @@ sev_launch_start(SEVState *s)
     QSevGuestInfo *sev = s->sev_info;
     struct kvm_sev_launch_start *start;
     guchar *session = NULL, *dh_cert = NULL;
+
+    if (sev_es_enabled()) {
+        return sev_snp_launch_start(s);
+    }
 
     start = g_new0(struct kvm_sev_launch_start, 1);
 
@@ -612,6 +652,32 @@ out:
     g_free(session);
     g_free(dh_cert);
     return ret;
+}
+
+static int
+sev_snp_launch_update(uint8_t *addr, uint64_t len, uint32_t type)
+{
+    int ret, fw_error;
+    struct kvm_sev_snp_launch_update update;
+
+    if (!addr || !len) {
+        return 1;
+    }
+
+    update.uaddr = (__u64)(unsigned long)addr;
+    update.len = len;
+    update.page_type = type;
+
+    trace_kvm_sev_snp_launch_update(update.uaddr, len, type);
+    ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_SNP_LAUNCH_UPDATE, &update,
+                    &fw_error);
+    if (ret < 0) {
+        error_report("%s KVM_SEV_SNP_LAUNCH_UPDATE ret=%d fw_error=%d '%s'",
+        __func__, ret, fw_error, fw_error_to_str(fw_error));
+        exit(1);
+    }
+
+    return 0;
 }
 
 static int
@@ -727,11 +793,19 @@ static Notifier sev_machine_done_notify = {
 static void
 sev_launch_finish(SEVState *s)
 {
-    int ret, error;
+    int ret, error, cmd;
     Error *local_err = NULL;
+    struct kvm_sev_snp_launch_finish data = {};
 
     trace_kvm_sev_launch_finish();
-    ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &error);
+
+    if (sev_snp_enabled()) {
+        ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_SNP_LAUNCH_FINISH,
+                        &data, &error);
+    } else {
+        ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &error);
+    }
+
     if (ret) {
         error_report("%s: LAUNCH_FINISH ret=%d fw_error=%d '%s'",
                      __func__, ret, error, fw_error_to_str(error));
@@ -826,8 +900,14 @@ sev_guest_init(const char *id)
     s->api_major = status.api_major;
     s->api_minor = status.api_minor;
 
+    s->is_snp = object_property_get_bool(OBJECT(s->sev_info), "snp", &error_abort);
     policy = object_property_get_int(OBJECT(s->sev_info), "policy", &error_abort);
-    cmd = (policy & GUEST_POLICY_SEV_ES_BIT) ? KVM_SEV_ES_INIT : KVM_SEV_INIT;
+
+    if (sev_snp_enabled()) {
+        cmd = KVM_SEV_SNP_INIT;
+    } else {
+        cmd = (policy & GUEST_POLICY_SEV_ES_BIT) ? KVM_SEV_ES_INIT : KVM_SEV_INIT;
+    }
 
     trace_kvm_sev_init();
     ret = sev_ioctl(s->sev_fd, cmd, NULL, &fw_error);
@@ -843,8 +923,12 @@ sev_guest_init(const char *id)
         goto err;
     }
 
+    /* no need to get measurement for the SNP */
+    if (!sev_snp_enabled()) {
+        qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
+    }
+
     ram_block_notifier_add(&sev_ram_notifier);
-    qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
     qemu_add_vm_change_state_handler(sev_vm_state_change, s);
 
     return s;
@@ -858,6 +942,10 @@ int
 sev_encrypt_data(void *handle, uint8_t *ptr, uint64_t len)
 {
     assert(handle);
+
+    if (sev_snp_enabled() && sev_check_state(SEV_STATE_SNP_GSTATE_LAUNCH)) {
+        return sev_snp_launch_update(ptr, len, KVM_SEV_SNP_PAGE_TYPE_NORMAL);
+    }
 
     /* if SEV is in update state then encrypt the data else do nothing */
     if (sev_check_state(SEV_STATE_LAUNCH_UPDATE)) {
