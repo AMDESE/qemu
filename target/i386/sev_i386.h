@@ -62,6 +62,7 @@ struct QSevGuestInfo {
     char *session_file;
     uint32_t cbitpos;
     uint32_t reduced_phys_bits;
+    bool snp;
 };
 
 struct QSevGuestInfoClass {

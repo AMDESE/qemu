@@ -289,6 +289,17 @@ qsev_guest_set_reduced_phys_bits(Object *obj, Visitor *v, const char *name,
 }
 
 static void
+qsev_guest_set_snp(Object *obj, Visitor *v, const char *name,
+                   void *opaque, Error **errp)
+{
+    QSevGuestInfo *sev = QSEV_GUEST_INFO(obj);
+    bool value;
+
+    visit_type_bool(v, name, &value, errp);
+    sev->snp = value;
+}
+
+static void
 qsev_guest_get_policy(Object *obj, Visitor *v, const char *name,
                       void *opaque, Error **errp)
 {
@@ -333,6 +344,17 @@ qsev_guest_get_reduced_phys_bits(Object *obj, Visitor *v, const char *name,
 }
 
 static void
+qsev_guest_get_snp(Object *obj, Visitor *v, const char *name,
+                   void *opaque, Error **errp)
+{
+    bool value;
+    QSevGuestInfo *sev = QSEV_GUEST_INFO(obj);
+
+    value = sev->snp;
+    visit_type_bool(v, name, &value, errp);
+}
+
+static void
 qsev_guest_init(Object *obj)
 {
     QSevGuestInfo *sev = QSEV_GUEST_INFO(obj);
@@ -348,6 +370,8 @@ qsev_guest_init(Object *obj)
     object_property_add(obj, "reduced-phys-bits", "uint32",
                         qsev_guest_get_reduced_phys_bits,
                         qsev_guest_set_reduced_phys_bits, NULL, NULL, NULL);
+    object_property_add(obj, "snp", "bool", qsev_guest_get_snp,
+                        qsev_guest_set_snp, NULL, NULL, NULL);
 }
 
 /* sev guest info */
