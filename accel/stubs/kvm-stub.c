@@ -115,6 +115,11 @@ int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len)
   return 1;
 }
 
+void kvm_memcrypt_rsvd_memory_range(uint32_t start, uint32_t size,
+        uint32_t type)
+{
+}
+
 #ifndef CONFIG_USER_ONLY
 int kvm_irqchip_add_msi_route(KVMState *s, int vector, PCIDevice *dev)
 {

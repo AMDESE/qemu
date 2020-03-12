@@ -109,6 +109,8 @@ struct KVMState
     /* memory encryption */
     void *memcrypt_handle;
     int (*memcrypt_encrypt_data)(void *handle, uint8_t *ptr, uint64_t len);
+    void (*memcrypt_rsvd_memory_range)(void *handle, uint32_t start,
+                                       uint32_t size, uint32_t type);
     unsigned int reset_cs;
     unsigned int reset_ip;
     bool reset_valid;
@@ -165,6 +167,15 @@ int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len)
     }
 
     return 1;
+}
+
+void kvm_memcrypt_rsvd_memory_range(uint32_t start, uint32_t size, uint32_t type)
+{
+    if (kvm_state->memcrypt_handle &&
+        kvm_state->memcrypt_rsvd_memory_range) {
+        return kvm_state->memcrypt_rsvd_memory_range(kvm_state->memcrypt_handle,
+                                              start, size, type);
+    }
 }
 
 void kvm_memcrypt_set_reset_vector(CPUState *cpu)
@@ -1713,6 +1724,7 @@ static int kvm_init(MachineState *ms)
         }
 
         kvm_state->memcrypt_encrypt_data = sev_encrypt_data;
+        kvm_state->memcrypt_rsvd_memory_range = sev_rsvd_memory_range;
     }
 
     ret = kvm_arch_init(ms, s);

@@ -18,6 +18,8 @@
 
 void *sev_guest_init(const char *id);
 int sev_encrypt_data(void *handle, uint8_t *ptr, uint64_t len);
+void sev_rsvd_memory_range(void *handle, uint32_t start, uint32_t size,
+                           uint32_t type);
 bool sev_es_enabled(void);
 bool sev_snp_enabled(void);
 

@@ -257,6 +257,18 @@ void kvm_memcrypt_set_reset_vector(CPUState *cpu);
  */
 void kvm_memcrypt_save_reset_vector(uint32_t addr);
 
+typedef enum {
+    KVM_MEMCRYPT_RSVD_MEM_CPUID,
+    KVM_MEMCRYPT_RSVD_MEM_SECRET,
+    KVM_MEMCRYPT_RSVD_MEM_VALIDATED,
+} memcrypt_rsvd_mem_type_t;
+
+/**
+ * kvm_memcrypt_rsvd_memory_range - reserve the gpa range
+ */
+void kvm_memcrypt_rsvd_memory_range(uint32_t start, uint32_t size,
+                                    memcrypt_rsvd_mem_type_t type);
+
 #ifdef NEED_CPU_H
 #include "cpu.h"
 

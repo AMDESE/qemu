@@ -49,6 +49,11 @@ typedef struct PcSysFwDevice {
 #define SEV_ES_RESET_BLOCK_GUID "\xde\x71\xf7\x00\x7e\x1a\xcb\x4f\x89\x0e\x68\xc7\x7e\x2f\xb4\x4e"
 
 typedef struct __attribute__((__packed__)) SevEsResetBlock {
+    uint32_t validate_size;
+    uint32_t validate_start_addr;
+    uint32_t secret_addr;
+    uint32_t cpuid_addr;
+    /* the fields above this are SNP specific */
     uint32_t addr;
     uint16_t size;
     char guid[16];
@@ -199,6 +204,16 @@ static void pc_system_flash_init(MemoryRegion *rom_memory)
                     if (memcmp(rb->guid, SEV_ES_RESET_BLOCK_GUID, 16)) {
                         error_report("SEV-ES reset block not found in pflash rom");
                         exit(1);
+                    }
+
+                    if (sev_snp_enabled()) {
+                        kvm_memcrypt_rsvd_memory_range(rb->cpuid_addr, 0x1000,
+                                    KVM_MEMCRYPT_RSVD_MEM_CPUID);
+                        kvm_memcrypt_rsvd_memory_range(rb->secret_addr, 0x1000,
+                                    KVM_MEMCRYPT_RSVD_MEM_SECRET);
+                        kvm_memcrypt_rsvd_memory_range(rb->validate_start_addr,
+                                    rb->validate_size,
+                                    KVM_MEMCRYPT_RSVD_MEM_VALIDATED);
                     }
 
                     kvm_memcrypt_save_reset_vector(rb->addr);
