@@ -32,6 +32,9 @@
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
 
+#define GUEST_POLICY_DBG_BIT    (1 << 0)
+#define GUEST_POLICY_SEV_ES_BIT (1 << 2)
+
 static SEVState *sev_state;
 static Error *sev_mig_blocker;
 
@@ -413,6 +416,12 @@ sev_enabled(void)
     return sev_state ? true : false;
 }
 
+bool
+sev_es_enabled(void)
+{
+    return (sev_enabled() && (sev_state->policy & GUEST_POLICY_SEV_ES_BIT));
+}
+
 uint64_t
 sev_get_me_mask(void)
 {
@@ -564,9 +573,8 @@ sev_launch_start(SEVState *s)
 
     start = g_new0(struct kvm_sev_launch_start, 1);
 
+    start->policy = s->policy;
     start->handle = object_property_get_int(OBJECT(sev), "handle",
-                                            &error_abort);
-    start->policy = object_property_get_int(OBJECT(sev), "policy",
                                             &error_abort);
     if (sev->session_file) {
         if (sev_read_file_base64(sev->session_file, &session, &sz) < 0) {
@@ -596,7 +604,6 @@ sev_launch_start(SEVState *s)
                             &error_abort);
     sev_set_guest_state(SEV_STATE_LAUNCH_UPDATE);
     s->handle = start->handle;
-    s->policy = start->policy;
     ret = 0;
 
 out:
@@ -629,6 +636,22 @@ sev_launch_update_data(uint8_t *addr, uint64_t len)
     return ret;
 }
 
+static int
+sev_launch_update_vmsa(void)
+{
+    int ret, fw_error;
+
+    ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_LAUNCH_UPDATE_VMSA, NULL, &fw_error);
+    if (ret) {
+        error_report("%s: LAUNCH_UPDATE_VMSA ret=%d fw_error=%d '%s'",
+                __func__, ret, fw_error, fw_error_to_str(fw_error));
+        goto err;
+    }
+
+err:
+    return ret;
+}
+
 static void
 sev_launch_get_measure(Notifier *notifier, void *unused)
 {
@@ -639,6 +662,14 @@ sev_launch_get_measure(Notifier *notifier, void *unused)
 
     if (!sev_check_state(SEV_STATE_LAUNCH_UPDATE)) {
         return;
+    }
+
+    if (sev_es_enabled()) {
+        /* measure all the VM save areas before getting launch_measure */
+        ret = sev_launch_update_vmsa();
+        if (ret) {
+            exit(1);
+        }
     }
 
     measurement = g_new0(struct kvm_sev_launch_measure, 1);
@@ -735,7 +766,7 @@ sev_guest_init(const char *id)
 {
     SEVState *s;
     char *devname;
-    int ret, fw_error;
+    int ret, fw_error, cmd;
     uint32_t ebx;
     uint32_t host_cbitpos;
     struct sev_user_data_status status = {};
@@ -749,6 +780,9 @@ sev_guest_init(const char *id)
     }
 
     s->state = SEV_STATE_UNINIT;
+
+    s->policy = object_property_get_int(OBJECT(s->sev_info), "policy",
+                                        &error_abort);
 
     host_cpuid(0x8000001F, 0, NULL, &ebx, NULL, NULL);
     host_cbitpos = ebx & 0x3f;
@@ -793,8 +827,20 @@ sev_guest_init(const char *id)
     s->api_major = status.api_major;
     s->api_minor = status.api_minor;
 
+    if (sev_es_enabled()) {
+        if (!(status.flags & SEV_STATUS_FLAGS_CONFIG_ES)) {
+            error_report("%s: guest policy requires SEV-ES, but "
+                         "host SEV-ES support unavailable",
+                         __func__);
+            goto err;
+        }
+        cmd = KVM_SEV_ES_INIT;
+    } else {
+        cmd = KVM_SEV_INIT;
+    }
+
     trace_kvm_sev_init();
-    ret = sev_ioctl(s->sev_fd, KVM_SEV_INIT, NULL, &fw_error);
+    ret = sev_ioctl(s->sev_fd, cmd, NULL, &fw_error);
     if (ret) {
         error_report("%s: failed to initialize ret=%d fw_error=%d '%s'",
                      __func__, ret, fw_error, fw_error_to_str(fw_error));
