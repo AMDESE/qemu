@@ -63,6 +63,8 @@ static const char *const sev_fw_errlist[] = {
 
 #define SEV_FW_MAX_ERROR      ARRAY_SIZE(sev_fw_errlist)
 
+#define SEV_FW_BLOB_MAX_SIZE            0x4000          /* 16KB */
+
 static int
 sev_ioctl(int fd, int cmd, void *data, int *error)
 {
@@ -640,6 +642,48 @@ sev_vm_state_change(void *opaque, int running, RunState state)
             sev_launch_finish(s);
         }
     }
+}
+
+static inline bool check_blob_length(size_t value)
+{
+    if (value > SEV_FW_BLOB_MAX_SIZE) {
+        error_report("invalid length max=%d got=%ld",
+                     SEV_FW_BLOB_MAX_SIZE, value);
+        return false;
+    }
+
+    return true;
+}
+
+int sev_save_setup(void *handle, const char *pdh, const char *plat_cert,
+                   const char *amd_cert)
+{
+    SEVState *s = (SEVState *)handle;
+
+    s->remote_pdh = g_base64_decode(pdh, &s->remote_pdh_len);
+    if (!check_blob_length(s->remote_pdh_len)) {
+        goto error;
+    }
+
+    s->remote_plat_cert = g_base64_decode(plat_cert,
+                                          &s->remote_plat_cert_len);
+    if (!check_blob_length(s->remote_plat_cert_len)) {
+        goto error;
+    }
+
+    s->amd_cert = g_base64_decode(amd_cert, &s->amd_cert_len);
+    if (!check_blob_length(s->amd_cert_len)) {
+        goto error;
+    }
+
+    return 0;
+
+error:
+    g_free(s->remote_pdh);
+    g_free(s->remote_plat_cert);
+    g_free(s->amd_cert);
+
+    return 1;
 }
 
 void *
