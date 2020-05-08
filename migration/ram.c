@@ -1743,6 +1743,14 @@ static bool encrypted_test_bitmap(RAMState *rs, RAMBlock *block,
         return false;
     }
 
+    if (!strcmp(memory_region_name(block->mr), "system.flash0")) {
+	    return true;
+    }
+
+    if (!strcmp(memory_region_name(block->mr), "system.flash1")) {
+	    return false;
+    }
+
     return test_bit(page, block->encbmap);
 }
 
