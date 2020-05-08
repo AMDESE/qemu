@@ -59,7 +59,13 @@ static const char *const sev_fw_errlist[] = {
     "Hardware error",
     "Hardware unsafe",
     "Feature not supported",
-    "Invalid parameter"
+    "Invalid parameter",
+    "Resource limit",
+    "Secure data invalid",
+    "Invalid page size",
+    "Invalid meta entry",
+    "Invalid page owner",
+
 };
 
 #define SEV_FW_MAX_ERROR      ARRAY_SIZE(sev_fw_errlist)
