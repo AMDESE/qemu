@@ -305,7 +305,7 @@ static inline void cpu_physical_memory_set_encrypted_range(ram_addr_t start,
         unsigned long old_val = atomic_read(&src[idx][BIT_WORD(offset)]);
         unsigned long mask;
 
-        mask = (~0UL >> n);
+        mask = (~0UL >> (BITS_PER_LONG - n));
         mask = mask << m;
 
         old_val &= ~mask;
@@ -325,7 +325,7 @@ static inline void cpu_physical_memory_set_encrypted_range(ram_addr_t start,
         unsigned long old_val = atomic_read(&src[idx][BIT_WORD(offset)]);
         unsigned long mask;
 
-        mask = (~0UL >> n);
+        mask = (~0UL >> (BITS_PER_LONG - n));
         mask = mask << m;
 
         old_val &= ~mask;
