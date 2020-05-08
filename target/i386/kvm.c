@@ -1888,6 +1888,7 @@ int kvm_arch_destroy_vcpu(CPUState *cs)
 
 void kvm_arch_reset_vcpu(X86CPU *cpu)
 {
+    KVMState *s = CPU(cpu)->kvm_state;
     CPUX86State *env = &cpu->env;
 
     env->xcr0 = 1;
@@ -1905,6 +1906,15 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
         }
 
         hyperv_x86_synic_reset(cpu);
+    }
+    if (cpu_is_bsp(cpu) && kvm_memcrypt_enabled()) {
+	struct kvm_page_enc_bitmap e = {};
+
+	error_report("resetting page encryption bitmap using set API\n");
+        e.start_gfn = 0;
+        e.num_pages = -1;
+        e.enc_bitmap = NULL;
+	kvm_vm_ioctl(s, KVM_SET_PAGE_ENC_BITMAP, &e);
     }
     /* enabled by default */
     env->poll_control_msr = 1;
