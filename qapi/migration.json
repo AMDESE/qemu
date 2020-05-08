@@ -641,6 +641,15 @@
 #          will consume more CPU.
 #          Defaults to 1. (Since 5.0)
 #
+# @sev-pdh: The target host platform diffie-hellman key encoded in base64
+#           (Since 4.2)
+#
+# @sev-plat-cert: The target host platform certificate chain encoded in base64
+#                 (Since 4.2)
+#
+# @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
+#                base64 (Since 4.2)
+#
 # Since: 2.4
 ##
 { 'enum': 'MigrationParameter',
@@ -655,7 +664,8 @@
            'multifd-channels',
            'xbzrle-cache-size', 'max-postcopy-bandwidth',
            'max-cpu-throttle', 'multifd-compression',
-           'multifd-zlib-level' ,'multifd-zstd-level' ] }
+           'multifd-zlib-level' ,'multifd-zstd-level', 
+           'sev-pdh', 'sev-plat-cert', 'sev-amd-cert' ] }
 
 ##
 # @MigrateSetParameters:
@@ -781,6 +791,15 @@
 #          will consume more CPU.
 #          Defaults to 1. (Since 5.0)
 #
+# @sev-pdh: The target host platform diffie-hellman key encoded in base64
+#           (Since 4.2)
+#
+# @sev-plat-cert: The target host platform certificate chain encoded in base64
+#                 (Since 4.2)
+#
+# @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
+#                base64 (Since 4.2)
+#
 # Since: 2.4
 ##
 # TODO either fuse back into MigrationParameters, or make
@@ -811,7 +830,10 @@
             '*max-cpu-throttle': 'int',
             '*multifd-compression': 'MultiFDCompression',
             '*multifd-zlib-level': 'int',
-            '*multifd-zstd-level': 'int' } }
+            '*multifd-zstd-level': 'int',
+            '*sev-pdh':'StrOrNull',
+            '*sev-plat-cert': 'StrOrNull',
+            '*sev-amd-cert' : 'StrOrNull' } }
 
 ##
 # @migrate-set-parameters:
@@ -957,6 +979,15 @@
 #          will consume more CPU.
 #          Defaults to 1. (Since 5.0)
 #
+# @sev-pdh: The target host platform diffie-hellman key encoded in base64
+#           (Since 4.2)
+#
+# @sev-plat-cert: The target host platform certificate chain encoded in base64
+#                 (Since 4.2)
+#
+# @sev-amd-cert: AMD certificate chain which include ASK and OCA encoded in
+#                base64 (Since 4.2)
+#
 # Since: 2.4
 ##
 { 'struct': 'MigrationParameters',
@@ -985,7 +1016,10 @@
             '*max-cpu-throttle': 'uint8',
             '*multifd-compression': 'MultiFDCompression',
             '*multifd-zlib-level': 'uint8',
-            '*multifd-zstd-level': 'uint8' } }
+            '*multifd-zstd-level': 'uint8',
+            '*sev-pdh':'str',
+            '*sev-plat-cert': 'str',
+            '*sev-amd-cert' : 'str'} }
 
 ##
 # @query-migrate-parameters:
