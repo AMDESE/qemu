@@ -386,6 +386,10 @@ void pci_bridge_initfn(PCIDevice *dev, const char *typename)
     br->windows = pci_bridge_region_init(br);
     QLIST_INIT(&sec_bus->child);
     QLIST_INSERT_HEAD(&parent->child, sec_bus, sibling);
+    if (pci_is_express(dev) && parent->iommu_ops) {
+        sec_bus->iommu_ops = parent->iommu_ops;
+        sec_bus->iommu_opaque = parent->iommu_opaque;
+    }
 }
 
 /* default qdev clean up function for PCI-to-PCI bridge */
