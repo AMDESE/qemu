@@ -39,6 +39,7 @@
 #include "hw/block/flash.h"
 #include "sysemu/kvm.h"
 #include "sysemu/sev.h"
+#include "qemu/uuid.h"
 
 /*
  * We don't have a theoretically justifiable exact lower bound on the base
@@ -51,14 +52,30 @@
 
 #define FLASH_SECTOR_SIZE 4096
 
-/* SEV-ES Reset Block GUID = 00f771de-1a7e-4fcb-890e-68c77e2fb44e */
-#define SEV_ES_RESET_BLOCK_GUID "\xde\x71\xf7\x00\x7e\x1a\xcb\x4f\x89\x0e\x68\xc7\x7e\x2f\xb4\x4e"
+#define SEV_ES_RESET_BLOCK_GUID "de71f700-7e1a-cb4f-890e-68c77e2fb44e"
 
 typedef struct __attribute__((__packed__)) SevEsResetBlock {
     uint32_t addr;
     uint16_t size;
     char guid[16];
 } SevEsResetBlock;
+
+static void seves_reset_block_cb(uint8_t *data);
+
+struct guid_info_struct {
+    char guid[37];
+    void (*cb)(uint8_t *);
+};
+
+/*
+ * To boot the AMD SEV guests some memory is reserved by the OVMF at the fixed
+ * RAM offset. A known offset and GUID can be used to locate this memory
+ * region. The table below lists the GUIDs which will be scanned. If GUID
+ * matches then is corresponding callback function will be executed.
+ */
+static struct guid_info_struct sev_guid_list[] = {
+    { SEV_ES_RESET_BLOCK_GUID, seves_reset_block_cb},
+};
 
 static void pc_isa_bios_init(MemoryRegion *rom_memory,
                              MemoryRegion *flash_mem,
@@ -139,6 +156,60 @@ static void pc_system_flash_cleanup_unused(PCMachineState *pcms)
     }
 }
 
+static void parse_sev_guid(uint8_t *start)
+{
+    int i;
+    uint32_t s_off;
+    uint8_t *guid_ptr;
+
+    /*
+     * Iterate through the GUIDs defined in uuid_list, if found,
+     * execute the callback.
+     */
+    for (i = 0; i < sizeof(sev_guid_list)/sizeof(sev_guid_list[0]); i++) {
+        QemuUUID uuid;
+
+        if (qemu_uuid_parse(sev_guid_list[i].guid, &uuid) < 0) {
+            error_report("failed to convert '%s' to uuid\n",
+                        sev_guid_list[i].guid);
+            exit (1);
+        }
+
+        guid_ptr = start;
+        if (qemu_uuid_is_equal((QemuUUID *)guid_ptr, &uuid)) {
+            /*
+             * A GUID structure looks like this:
+             *   struct foo {
+             *      ...
+             *      uint16_t size;
+             *      uint8_t guid[16];  <--- guid_ptr
+             *   };
+             *
+	     *   To reach to the begining of the struct use the size field to
+	     *   determine how much need to be substructed.
+             */
+	    s_off = *(start - sizeof(uint16_t)) - sizeof(uuid);
+	    start -= s_off;
+
+            if (sev_guid_list[i].cb) {
+                sev_guid_list[i].cb(start);
+            }
+
+	    /* Go to next GUID */
+            start = start - sizeof(uuid);
+        }
+    }
+}
+
+static void seves_reset_block_cb(uint8_t *data)
+{
+    SevEsResetBlock *rb = (SevEsResetBlock *)data;
+
+    if (sev_es_enabled()) {
+        kvm_memcrypt_save_reset_vector(rb->addr);
+    }
+}
+
 /*
  * Map the pcms->flash[] from 4GiB downward, and realize.
  * Map them in descending order, i.e. pcms->flash[0] at the top,
@@ -211,22 +282,11 @@ static void pc_system_flash_map(PCMachineState *pcms,
                 flash_ptr = memory_region_get_ram_ptr(flash_mem);
                 flash_size = memory_region_size(flash_mem);
 
-                /* Extract the AP reset vector for SEV-ES guests */
-                if (sev_es_enabled()) {
-                    SevEsResetBlock *rb;
-
-                    /* The end of the SEV-ES reset block GUID is located
-                     * 32 bytes from the end of the flash. Use this to base
-                     * SEV-ES reset block address.
-                     */
-                    rb = flash_ptr + flash_size - 0x20 - sizeof(*rb);
-                    if (memcmp(rb->guid, SEV_ES_RESET_BLOCK_GUID, 16)) {
-                        error_report("SEV-ES reset block not found in pflash rom");
-                        exit(1);
-                    }
-
-                    kvm_memcrypt_save_reset_vector(rb->addr);
-                }
+                /*
+                 * The first GUID must always be 48 bytes from the end of
+                 * the firmware.
+                 */
+                parse_sev_guid(flash_ptr + flash_size - 48);
 
                 ret = kvm_memcrypt_encrypt_data(flash_ptr, flash_size);
                 if (ret) {
