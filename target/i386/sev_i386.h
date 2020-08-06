@@ -80,6 +80,7 @@ struct SEVState {
     uint32_t reduced_phys_bits;
     uint32_t handle;
     int sev_fd;
+    bool is_snp;
     SevState state;
     gchar *measurement;
 };
