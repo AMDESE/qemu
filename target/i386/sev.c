@@ -270,6 +270,28 @@ qsev_guest_class_init(ObjectClass *oc, void *data)
 }
 
 static void
+qsev_guest_set_snp(Object *obj, Visitor *v, const char *name,
+                   void *opaque, Error **errp)
+{
+    QSevGuestInfo *sev = QSEV_GUEST_INFO(obj);
+    bool value;
+
+    visit_type_bool(v, name, &value, errp);
+    sev->snp = value;
+}
+
+static void
+qsev_guest_get_snp(Object *obj, Visitor *v, const char *name,
+                   void *opaque, Error **errp)
+{
+    bool value;
+    QSevGuestInfo *sev = QSEV_GUEST_INFO(obj);
+
+    value = sev->snp;
+    visit_type_bool(v, name, &value, errp);
+}
+
+static void
 qsev_guest_init(Object *obj)
 {
     QSevGuestInfo *sev = QSEV_GUEST_INFO(obj);
@@ -285,6 +307,8 @@ qsev_guest_init(Object *obj)
     object_property_add_uint32_ptr(obj, "reduced-phys-bits",
                                    &sev->reduced_phys_bits,
                                    OBJ_PROP_FLAG_READWRITE, NULL);
+    object_property_add(obj, "snp", "bool", qsev_guest_get_snp,
+                        qsev_guest_set_snp, NULL, NULL, NULL);
 }
 
 /* sev guest info */
