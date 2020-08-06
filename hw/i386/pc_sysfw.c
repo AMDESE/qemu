@@ -62,6 +62,19 @@ typedef struct __attribute__((__packed__)) SevEsResetBlock {
 
 static void seves_reset_block_cb(uint8_t *data);
 
+#define SEV_SNP_BOOT_BLOCK_GUID "c2c039bd-8e2f-4342-83e8-1b74cebcb7d9"
+
+typedef struct __attribute__((__packed__)) SevSnpBootBlock {
+    uint32_t validate_end_addr;
+    uint32_t validate_start_addr;
+    uint32_t cpuid_addr;
+    uint32_t secret_addr;
+    uint16_t size;
+    char guid[16];
+} SevSnpBootBlock;
+
+static void sevsnp_boot_block_cb(uint8_t *data);
+
 struct guid_info_struct {
     char guid[37];
     void (*cb)(uint8_t *);
@@ -75,6 +88,7 @@ struct guid_info_struct {
  */
 static struct guid_info_struct sev_guid_list[] = {
     { SEV_ES_RESET_BLOCK_GUID, seves_reset_block_cb},
+    { SEV_SNP_BOOT_BLOCK_GUID, sevsnp_boot_block_cb},
 };
 
 static void pc_isa_bios_init(MemoryRegion *rom_memory,
@@ -207,6 +221,21 @@ static void seves_reset_block_cb(uint8_t *data)
 
     if (sev_es_enabled()) {
         kvm_memcrypt_save_reset_vector(rb->addr);
+    }
+}
+
+static void sevsnp_boot_block_cb(uint8_t *data)
+{
+    SevSnpBootBlock *rb = (SevSnpBootBlock *)data;
+
+    if (sev_snp_enabled()) {
+        kvm_memcrypt_rsvd_memory_range(rb->cpuid_addr, 0x1000,
+                    KVM_MEMCRYPT_RSVD_MEM_CPUID);
+        kvm_memcrypt_rsvd_memory_range(rb->secret_addr, 0x1000,
+                    KVM_MEMCRYPT_RSVD_MEM_SECRET);
+        kvm_memcrypt_rsvd_memory_range(rb->validate_start_addr,
+                    rb->validate_end_addr - rb->validate_start_addr,
+                    KVM_MEMCRYPT_RSVD_MEM_VALIDATED);
     }
 }
 

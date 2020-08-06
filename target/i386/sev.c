@@ -28,6 +28,7 @@
 #include "sysemu/runstate.h"
 #include "trace.h"
 #include "migration/blocker.h"
+#include "exec/address-spaces.h"
 
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
@@ -897,6 +898,69 @@ sev_encrypt_data(void *handle, uint8_t *ptr, uint64_t len)
     }
 
     return 0;
+}
+
+inline static int
+snp_rsvd_mem_to_page_type(memcrypt_rsvd_mem_type_t in)
+{
+    switch (in) {
+        case KVM_MEMCRYPT_RSVD_MEM_CPUID: return KVM_SEV_SNP_PAGE_TYPE_CPUID;
+        case KVM_MEMCRYPT_RSVD_MEM_SECRET: return KVM_SEV_SNP_PAGE_TYPE_SECRETS;
+        case KVM_MEMCRYPT_RSVD_MEM_VALIDATED: return KVM_SEV_SNP_PAGE_TYPE_UNMEASURED;
+        default: error_report("SEV:SNP: unsupport page type %d\n", in);
+                 exit(1);
+    }
+
+    return 0;
+}
+
+static void*
+gpa2hva(hwaddr addr, uint64_t size)
+{
+    MemoryRegionSection mrs = memory_region_find(get_system_memory(),
+                                                 addr, size);
+
+    if (!mrs.mr) {
+        error_report("No memory is mapped at address 0x%" HWADDR_PRIx, addr);
+        return NULL;
+    }
+
+    return qemu_map_ram_ptr(mrs.mr->ram_block, mrs.offset_within_region);
+}
+
+void
+sev_rsvd_memory_range(void *handle, uint32_t hwaddr, uint32_t size,
+                      uint32_t type)
+{
+    struct kvm_sev_snp_launch_update update;
+    int ret, fw_error;
+    void *hva;
+
+    assert(handle);
+
+    if (!sev_snp_enabled()) {
+        return;
+    }
+
+    hva = gpa2hva(hwaddr, size);
+    if (!hva) {
+        exit(1);
+    }
+
+    update.uaddr = (__u64)(unsigned long)hva;
+    update.len = size;
+    update.page_type = snp_rsvd_mem_to_page_type(type);
+
+    trace_kvm_sev_snp_launch_update_rsvd(hwaddr, hwaddr + update.len,
+            update.page_type);
+
+    ret = sev_ioctl(sev_state->sev_fd, KVM_SEV_SNP_LAUNCH_UPDATE, &update,
+                    &fw_error);
+    if (ret < 0) {
+        error_report("%s KVM_SEV_SNP_LAUNCH_UPDATE ret=%d fw_error=%d '%s'",
+        __func__, ret, fw_error, fw_error_to_str(fw_error));
+        exit(1);
+    }
 }
 
 static void
