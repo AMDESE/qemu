@@ -3801,6 +3801,9 @@ static void vtd_replay_guest_pasid_bindings(IntelIOMMUState *s,
 static void vtd_pasid_cache_sync(IntelIOMMUState *s,
                                  VTDPASIDCacheInfo *pc_info)
 {
+    if (!s->scalable_modern || !s->root_scalable)
+        return;
+
     /*
      * Regards to a pasid cache invalidation, e.g. a PSI.
      * it could be either cases of below:
