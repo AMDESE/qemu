@@ -2947,3 +2947,8 @@ void kvmppc_svm_off(Error **errp)
         error_setg_errno(errp, -rc, "KVM_PPC_SVM_OFF ioctl failed");
     }
 }
+
+bool kvm_arch_cpu_check_are_resettable(void)
+{
+    return true;
+}
