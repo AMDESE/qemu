@@ -25,6 +25,7 @@
 #include "sysemu/kvm.h"
 #include "sysemu/runstate.h"
 #include "kvm_i386.h"
+#include "sev_i386.h"
 #ifndef CONFIG_USER_ONLY
 #include "sysemu/tcg.h"
 #include "sysemu/hw_accel.h"
@@ -415,6 +416,11 @@ void x86_cpu_dump_state(CPUState *cs, FILE *f, int flags)
     int eflags, i, nb;
     char cc_op_name[32];
     static const char *seg_name[6] = { "ES", "CS", "SS", "DS", "FS", "GS" };
+
+    if (sev_es_enabled()) {
+        qemu_fprintf(f, "SEV-ES is enabled, register state not available\n");
+        return;
+    }
 
     eflags = cpu_compute_eflags(env);
 #ifdef TARGET_X86_64
