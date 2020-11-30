@@ -32,6 +32,7 @@
 #include "qom/object.h"
 #include "exec/address-spaces.h"
 #include "monitor/monitor.h"
+#include "hw/i386/pc.h"
 
 #define TYPE_SEV_GUEST "sev-guest"
 OBJECT_DECLARE_SIMPLE_TYPE(SevGuestState, SEV_GUEST)
@@ -903,6 +904,19 @@ int sev_inject_launch_secret(const char *packet_hdr, const char *secret,
     return 0;
 }
 
+static int
+sev_es_parse_reset_block(SevInfoBlock *info, uint32_t *addr)
+{
+    if (!info->reset_addr) {
+        error_report("SEV-ES reset address is zero");
+        return 1;
+    }
+
+    *addr = info->reset_addr;
+
+    return 0;
+}
+
 int
 sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
                          uint32_t *addr)
@@ -925,8 +939,19 @@ sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
 
     /*
      * Extract the AP reset vector for SEV-ES guests by locating the SEV GUID.
-     * The SEV GUID is located 32 bytes from the end of the flash. Use this
-     * address to base the SEV information block.
+     * The SEV GUID is located on its own (original implementation) or within
+     * the Firmware GUID Table (new implementation), either of which are
+     * located 32 bytes from the end of the flash.
+     *
+     * Check the Firmware GUID Table first.
+     */
+    if (pc_system_ovmf_table_find(SEV_INFO_BLOCK_GUID, &data, NULL)) {
+        return sev_es_parse_reset_block((SevInfoBlock *)data, addr);
+    }
+
+    /*
+     * SEV info block not found in the Firmware GUID Table (or there isn't
+     * a Firmware GUID Table, fall back to the original implementation.
      */
     data = flash_ptr + flash_size - 0x20;
 
@@ -935,20 +960,14 @@ sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
 
     guid = (QemuUUID *)(data - sizeof(info_guid));
     if (!qemu_uuid_is_equal(guid, &info_guid)) {
-        error_report("SEV information block not found in pflash rom");
+        error_report("SEV information block/Firmware GUID Table block not found in pflash rom");
         return 1;
     }
 
     len = (uint16_t *)((uint8_t *)guid - sizeof(*len));
     info = (SevInfoBlock *)(data - le16_to_cpu(*len));
-    if (!info->reset_addr) {
-        error_report("SEV-ES reset address is zero");
-        return 1;
-    }
 
-    *addr = info->reset_addr;
-
-    return 0;
+    return sev_es_parse_reset_block(info, addr);
 }
 
 static void
