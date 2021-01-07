@@ -58,6 +58,7 @@ struct SevGuestState {
     char *session_file;
     uint32_t cbitpos;
     uint32_t reduced_phys_bits;
+    bool snp;
 
     /* runtime state */
     uint32_t handle;
@@ -267,6 +268,22 @@ sev_guest_get_dh_cert_file(Object *obj, Error **errp)
 }
 
 static void
+sev_guest_set_snp(Object *obj, bool value, Error **errp)
+{
+    SevGuestState *sev = SEV_GUEST(obj);
+
+    sev->snp = value;
+}
+
+static bool
+sev_guest_get_snp(Object *obj, Error **errp)
+{
+    SevGuestState *sev = SEV_GUEST(obj);
+
+    return sev->snp;
+}
+
+static void
 sev_guest_set_dh_cert_file(Object *obj, const char *value, Error **errp)
 {
     SevGuestState *s = SEV_GUEST(obj);
@@ -308,6 +325,11 @@ sev_guest_class_init(ObjectClass *oc, void *data)
                                   sev_guest_set_session_file);
     object_class_property_set_description(oc, "session-file",
             "guest owners session parameters (encoded with base64)");
+    object_class_property_add_bool(oc, "snp",
+                             sev_guest_get_snp,
+                             sev_guest_set_snp);
+    object_class_property_set_description(oc, "snp",
+            "enable SEV-SNP support");
 }
 
 static void
