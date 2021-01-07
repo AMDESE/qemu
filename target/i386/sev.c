@@ -393,8 +393,19 @@ sev_enabled(void)
 bool
 sev_es_enabled(void)
 {
+    if (sev_snp_enabled()) {
+        return true;
+    }
+
     return sev_enabled() && (sev_guest->policy & SEV_POLICY_ES);
 }
+
+bool
+sev_snp_enabled(void)
+{
+    return (sev_enabled() && sev_guest->snp);
+}
+
 
 uint64_t
 sev_get_me_mask(void)
@@ -429,6 +440,7 @@ sev_get_info(void)
         info->policy = sev_guest->policy;
         info->state = sev_guest->state;
         info->handle = sev_guest->handle;
+        info->snp = sev_guest->snp;
     }
 
     return info;
@@ -529,6 +541,29 @@ out:
 }
 
 static int
+sev_snp_launch_start(SevGuestState *sev)
+{
+    struct kvm_sev_snp_launch_start *start;
+    int rc, fw_error;
+
+    start = g_new0(struct kvm_sev_snp_launch_start, 1);
+    start->policy = sev->policy;
+    trace_kvm_sev_snp_launch_start(start->policy);
+
+    rc = sev_ioctl(sev->sev_fd, KVM_SEV_SNP_LAUNCH_START, start, &fw_error);
+    if (rc < 0) {
+        error_report("%s: LAUNCH_SNP_START ret=%d fw_error=%d '%s'",
+                __func__, rc, fw_error, fw_error_to_str(fw_error));
+        goto out;
+    }
+
+    sev_set_guest_state(sev, SEV_STATE_SNP_GSTATE_LAUNCH);
+out:
+    g_free(start);
+    return rc;
+}
+
+static int
 sev_read_file_base64(const char *filename, guchar **data, gsize *len)
 {
     gsize sz;
@@ -553,6 +588,10 @@ sev_launch_start(SevGuestState *sev)
     int fw_error, rc;
     struct kvm_sev_launch_start *start;
     guchar *session = NULL, *dh_cert = NULL;
+
+    if (sev_snp_enabled()) {
+        return sev_snp_launch_start(sev);
+    }
 
     start = g_new0(struct kvm_sev_launch_start, 1);
 
@@ -591,6 +630,32 @@ out:
     g_free(session);
     g_free(dh_cert);
     return ret;
+}
+
+static int
+sev_snp_launch_update(uint8_t *addr, uint64_t len, uint32_t type)
+{
+    int ret, fw_error;
+    struct kvm_sev_snp_launch_update update;
+
+    if (!addr || !len) {
+        return 1;
+    }
+
+    update.uaddr = (__u64)(unsigned long)addr;
+    update.len = len;
+    update.page_type = type;
+
+    trace_kvm_sev_snp_launch_update(update.uaddr, len, type);
+    ret = sev_ioctl(sev_guest->sev_fd, KVM_SEV_SNP_LAUNCH_UPDATE, &update,
+                    &fw_error);
+    if (ret < 0) {
+        error_report("%s KVM_SEV_SNP_LAUNCH_UPDATE ret=%d fw_error=%d '%s'",
+        __func__, ret, fw_error, fw_error_to_str(fw_error));
+        exit(1);
+    }
+
+    return 0;
 }
 
 static int
@@ -705,9 +770,17 @@ sev_launch_finish(SevGuestState *sev)
 {
     int ret, error;
     Error *local_err = NULL;
+    struct kvm_sev_snp_launch_finish data = {};
 
     trace_kvm_sev_launch_finish();
-    ret = sev_ioctl(sev->sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &error);
+
+    if (sev_snp_enabled()) {
+        ret = sev_ioctl(sev->sev_fd, KVM_SEV_SNP_LAUNCH_FINISH,
+                        &data, &error);
+    } else {
+        ret = sev_ioctl(sev->sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &error);
+    }
+
     if (ret) {
         error_report("%s: LAUNCH_FINISH ret=%d fw_error=%d '%s'",
                      __func__, ret, error, fw_error_to_str(error));
@@ -805,7 +878,9 @@ sev_guest_init(const char *id)
     sev->api_major = status.api_major;
     sev->api_minor = status.api_minor;
 
-    if (sev_es_enabled()) {
+    if (sev_snp_enabled()) {
+        cmd = KVM_SEV_SNP_INIT;
+    } else if (sev_es_enabled()) {
         if (!kvm_kernel_irqchip_allowed()) {
             error_report("%s: SEV-ES guests require in-kernel irqchip support",
                          __func__);
@@ -838,7 +913,12 @@ sev_guest_init(const char *id)
     }
 
     ram_block_notifier_add(&sev_ram_notifier);
-    qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
+
+    /* no need to get measurement for the SNP */
+    if (!sev_snp_enabled()) {
+        qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
+    }
+
     qemu_add_vm_change_state_handler(sev_vm_state_change, sev);
 
     return sev;
@@ -854,6 +934,10 @@ sev_encrypt_data(void *handle, uint8_t *ptr, uint64_t len)
     SevGuestState *sev = handle;
 
     assert(sev);
+
+    if (sev_snp_enabled() && sev_check_state(sev, SEV_STATE_SNP_GSTATE_LAUNCH)) {
+        return sev_snp_launch_update(ptr, len, KVM_SEV_SNP_PAGE_TYPE_NORMAL);
+    }
 
     /* if SEV is in update state then encrypt the data else do nothing */
     if (sev_check_state(sev, SEV_STATE_LAUNCH_UPDATE)) {
