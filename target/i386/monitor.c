@@ -702,6 +702,8 @@ void hmp_info_sev(Monitor *mon, const QDict *qdict)
                        info->policy & SEV_POLICY_NODBG ? "off" : "on");
         monitor_printf(mon, "key-sharing: %s\n",
                        info->policy & SEV_POLICY_NOKS ? "off" : "on");
+        monitor_printf(mon, "snp: %s\n",
+                       info->snp ? "on" : "off");
     } else {
         monitor_printf(mon, "SEV is not enabled\n");
     }

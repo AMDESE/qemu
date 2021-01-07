@@ -60,3 +60,8 @@ bool sev_es_enabled(void)
 {
     return false;
 }
+
+bool sev_snp_enabled(void)
+{
+    return false;
+}
