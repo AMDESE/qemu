@@ -80,6 +80,17 @@ typedef struct __attribute__((__packed__)) SevInfoBlock {
     uint32_t reset_addr;
 } SevInfoBlock;
 
+#define SEV_SNP_BOOT_BLOCK_GUID "bd39c0c2-2f8e-4243-83e8-1b74cebcb7d9"
+typedef struct __attribute__((__packed__)) SevSnpBootInfoBlock {
+    /* Secret Page address */
+    uint32_t secret_addr;
+    /* CPUID Page address */
+    uint32_t cpuid_addr;
+    /* Unmeasured range address */
+    uint32_t unmeasured_start;
+    uint32_t unmeasured_end;
+} SevSnpBootInfoBlock;
+
 static SevGuestState *sev_guest;
 static Error *sev_mig_blocker;
 
@@ -1023,6 +1034,48 @@ sev_es_parse_reset_block(SevInfoBlock *info, uint32_t *addr)
     return 0;
 }
 
+static int
+sev_snp_launch_update_gpa(uint32_t hwaddr, uint32_t size, uint8_t type)
+{
+    void *hva;
+    MemoryRegion *mr = NULL;
+
+    hva = gpa2hva(&mr, hwaddr, size, NULL);
+    if (!hva) {
+        error_report("SEV-SNP failed to get HVA for GPA 0x%x", hwaddr);
+        return 1;
+    }
+
+    return sev_snp_launch_update(hva, size, type);
+}
+
+static int
+snp_parse_boot_block(SevSnpBootInfoBlock *info)
+{
+    int ret;
+
+    ret = sev_snp_launch_update_gpa(info->cpuid_addr, TARGET_PAGE_SIZE,
+                                    KVM_SEV_SNP_PAGE_TYPE_CPUID);
+    if (ret) {
+        return 1;
+    }
+
+    ret = sev_snp_launch_update_gpa(info->secret_addr, TARGET_PAGE_SIZE,
+                                    KVM_SEV_SNP_PAGE_TYPE_SECRETS);
+    if (ret) {
+        return 1;
+    }
+
+    ret = sev_snp_launch_update_gpa(info->unmeasured_start,
+                                    info->unmeasured_end - info->unmeasured_start,
+                                    KVM_SEV_SNP_PAGE_TYPE_UNMEASURED);
+    if (ret) {
+        return 1;
+    }
+
+    return 0;
+}
+
 int
 sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
                          uint32_t *addr)
@@ -1031,6 +1084,7 @@ sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
     SevInfoBlock *info;
     uint8_t *data;
     uint16_t *len;
+    int ret;
 
     assert(handle);
 
@@ -1041,6 +1095,16 @@ sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
     *addr = 0;
     if (!sev_es_enabled()) {
         return 0;
+    }
+
+    /*
+     * Extract the secret and cpuid page by locating the SEV SNP BOOT GUID.
+     */
+    if (sev_snp_enabled() && pc_system_ovmf_table_find(SEV_SNP_BOOT_BLOCK_GUID, &data, NULL)) {
+        ret = snp_parse_boot_block((SevSnpBootInfoBlock *)data);
+        if (ret) {
+            return ret;
+        }
     }
 
     /*
