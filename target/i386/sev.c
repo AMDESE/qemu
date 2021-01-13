@@ -22,6 +22,7 @@
 #include "qom/object_interfaces.h"
 #include "qemu/base64.h"
 #include "qemu/module.h"
+#include "qemu/uuid.h"
 #include "sysemu/kvm.h"
 #include "sev_i386.h"
 #include "sysemu/sysemu.h"
@@ -31,6 +32,7 @@
 #include "qom/object.h"
 #include "exec/address-spaces.h"
 #include "monitor/monitor.h"
+#include "hw/i386/pc.h"
 
 #define TYPE_SEV_GUEST "sev-guest"
 OBJECT_DECLARE_SIMPLE_TYPE(SevGuestState, SEV_GUEST)
@@ -70,6 +72,12 @@ struct SevGuestState {
 
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
+
+#define SEV_INFO_BLOCK_GUID     "00f771de-1a7e-4fcb-890e-68c77e2fb44e"
+typedef struct __attribute__((__packed__)) SevInfoBlock {
+    /* SEV-ES Reset Vector Address */
+    uint32_t reset_addr;
+} SevInfoBlock;
 
 static SevGuestState *sev_guest;
 static Error *sev_mig_blocker;
@@ -894,6 +902,72 @@ int sev_inject_launch_secret(const char *packet_hdr, const char *secret,
     }
 
     return 0;
+}
+
+static int
+sev_es_parse_reset_block(SevInfoBlock *info, uint32_t *addr)
+{
+    if (!info->reset_addr) {
+        error_report("SEV-ES reset address is zero");
+        return 1;
+    }
+
+    *addr = info->reset_addr;
+
+    return 0;
+}
+
+int
+sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
+                         uint32_t *addr)
+{
+    QemuUUID info_guid, *guid;
+    SevInfoBlock *info;
+    uint8_t *data;
+    uint16_t *len;
+
+    assert(handle);
+
+    /*
+     * Initialize the address to zero. An address of zero with a successful
+     * return code indicates that SEV-ES is not active.
+     */
+    *addr = 0;
+    if (!sev_es_enabled()) {
+        return 0;
+    }
+
+    /*
+     * Extract the AP reset vector for SEV-ES guests by locating the SEV GUID.
+     * The SEV GUID is located on its own (original implementation) or within
+     * the Firmware GUID Table (new implementation), either of which are
+     * located 32 bytes from the end of the flash.
+     *
+     * Check the Firmware GUID Table first.
+     */
+    if (pc_system_ovmf_table_find(SEV_INFO_BLOCK_GUID, &data, NULL)) {
+        return sev_es_parse_reset_block((SevInfoBlock *)data, addr);
+    }
+
+    /*
+     * SEV info block not found in the Firmware GUID Table (or there isn't
+     * a Firmware GUID Table, fall back to the original implementation.
+     */
+    data = flash_ptr + flash_size - 0x20;
+
+    qemu_uuid_parse(SEV_INFO_BLOCK_GUID, &info_guid);
+    info_guid = qemu_uuid_bswap(info_guid); /* GUIDs are LE */
+
+    guid = (QemuUUID *)(data - sizeof(info_guid));
+    if (!qemu_uuid_is_equal(guid, &info_guid)) {
+        error_report("SEV information block/Firmware GUID Table block not found in pflash rom");
+        return 1;
+    }
+
+    len = (uint16_t *)((uint8_t *)guid - sizeof(*len));
+    info = (SevInfoBlock *)(data - le16_to_cpu(*len));
+
+    return sev_es_parse_reset_block(info, addr);
 }
 
 static void
