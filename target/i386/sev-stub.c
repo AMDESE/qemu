@@ -49,8 +49,14 @@ SevCapability *sev_get_capabilities(Error **errp)
     error_setg(errp, "SEV is not available in this QEMU");
     return NULL;
 }
+
 int sev_inject_launch_secret(const char *hdr, const char *secret,
                              uint64_t gpa, Error **errp)
 {
     return 1;
+}
+
+bool sev_es_enabled(void)
+{
+    return false;
 }
