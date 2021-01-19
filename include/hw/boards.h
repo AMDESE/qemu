@@ -72,6 +72,29 @@ typedef struct {
 } CPUArchIdList;
 
 /**
+ * The functions registers with MachineMemoryEncryptionOps will be used during
+ * the encrypted guest migration.
+ */
+struct MachineMemoryEncryptionOps {
+    /* Initialize the platform specific state before starting the migration */
+    int (*save_setup)(const char *pdh, const char *plat_cert,
+                      const char *amd_cert);
+
+    /* Write the encrypted page and metadata associated with it */
+    int (*save_outgoing_page)(QEMUFile *f, uint8_t *ptr, uint32_t size,
+                              uint64_t *bytes_sent);
+
+    /* Load the incoming encrypted page into guest memory */
+    int (*load_incoming_page)(QEMUFile *f, uint8_t *ptr);
+
+    /* Write the unencrypted regions list */
+    int (*save_outgoing_url_list)(QEMUFile *f);
+
+    /* Load the incoming unencrpyted regions list */
+    int (*load_incoming_url_list)(QEMUFile *f);
+};
+
+/**
  * MachineClass:
  * @deprecation_reason: If set, the machine is marked as deprecated. The
  *    string should provide some clear information about what to use instead.
@@ -220,6 +243,7 @@ struct MachineClass {
     const CPUArchIdList *(*possible_cpu_arch_ids)(MachineState *machine);
     int64_t (*get_default_cpu_node_id)(const MachineState *ms, int idx);
     ram_addr_t (*fixup_ram_size)(ram_addr_t size);
+    struct MachineMemoryEncryptionOps *memory_encryption_ops;
 };
 
 /**
