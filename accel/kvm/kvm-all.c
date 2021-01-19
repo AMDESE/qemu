@@ -2268,7 +2268,7 @@ static int kvm_init(MachineState *ms)
      * if memory encryption object is specified then initialize the memory
      * encryption context.
      */
-    if (ms->memory_encryption) {
+    if (machine_memory_encryption_enabled(ms)) {
         kvm_state->memcrypt_handle = sev_guest_init(ms->memory_encryption);
         if (!kvm_state->memcrypt_handle) {
             ret = -1;
