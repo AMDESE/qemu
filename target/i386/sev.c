@@ -92,6 +92,11 @@ typedef struct __attribute__((__packed__)) SevInfoBlock {
 static SevGuestState *sev_guest;
 static Error *sev_mig_blocker;
 
+struct page_enc_status_array_entry {
+	unsigned long gfn_start;
+	unsigned long gfn_end;
+};
+
 static const char *const sev_fw_errlist[] = {
     "",
     "Platform state is invalid",
@@ -121,6 +126,8 @@ static const char *const sev_fw_errlist[] = {
 #define SEV_FW_MAX_ERROR      ARRAY_SIZE(sev_fw_errlist)
 
 #define SEV_FW_BLOB_MAX_SIZE            0x4000          /* 16KB */
+#define UNENCRYPT_REGIONS_LIST_START    0x1
+#define UNENCRYPT_REGIONS_LIST_END      0x2
 
 static int
 sev_ioctl(int fd, int cmd, void *data, int *error)
@@ -1382,6 +1389,69 @@ int sev_load_incoming_page(void *handle, QEMUFile *f, uint8_t *ptr)
     }
 
     return sev_receive_update_data(f, ptr);
+}
+
+int sev_load_incoming_unencrypt_regions_list(void *handle, QEMUFile *f)
+{
+    void *buffer;
+    struct kvm_page_enc_list e = {};
+    uint32_t size;
+    int nents, status;
+
+    status = qemu_get_be32(f);
+
+    if (status != UNENCRYPT_REGIONS_LIST_START) {
+        nents = qemu_get_be32(f);
+        size = nents * sizeof(struct page_enc_status_array_entry);
+
+        buffer = g_malloc0(size);
+        qemu_get_buffer(f, (uint8_t *)buffer, size);
+
+        e.pnents = &nents;
+        e.size = size;
+        e.buffer = buffer;
+        if (kvm_vm_ioctl(kvm_state, KVM_SET_PAGE_ENC_LIST, &e) == -1) {
+            error_report("KVM_SET_PAGE_ENC_BITMAP ioctl failed %d", errno);
+            g_free(buffer);
+            return 1;
+        }
+
+        g_free(buffer);
+
+        status = qemu_get_be32(f);
+    }
+
+    return 0;
+}
+
+int sev_save_outgoing_unencrypt_regions_list(void *handle, QEMUFile *f)
+{
+    struct kvm_page_enc_list e = {};
+    uint32_t size;
+    int nents;
+
+    e.pnents = &nents;
+    e.size = TARGET_PAGE_SIZE;
+    e.buffer = g_malloc0(TARGET_PAGE_SIZE);
+
+    //trace_kvm_sev_save_bitmap(start, length);
+
+    if (kvm_vm_ioctl(kvm_state, KVM_GET_PAGE_ENC_LIST, &e) == -1) {
+        error_report("%s: KVM_GET_PAGE_ENC_BITMAP ioctl failed %d",
+                    __func__, errno);
+        g_free(e.buffer);
+        return 1;
+    }
+
+    qemu_put_be32(f, UNENCRYPT_REGIONS_LIST_START);
+    qemu_put_be32(f, nents);
+    size = nents * sizeof(struct page_enc_status_array_entry);
+    qemu_put_buffer(f, (uint8_t *)e.buffer, size);
+
+    g_free(e.buffer);
+
+    qemu_put_be32(f, UNENCRYPT_REGIONS_LIST_END);
+    return 0;
 }
 
 static void

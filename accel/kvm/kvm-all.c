@@ -258,10 +258,24 @@ static int kvm_memcrypt_load_incoming_page(QEMUFile *f, uint8_t *ptr)
     return sev_load_incoming_page(kvm_state->memcrypt_handle, f, ptr);
 }
 
+static int kvm_memcrypt_save_outgoing_unencrypt_regions_list(QEMUFile *f)
+{
+    return sev_save_outgoing_unencrypt_regions_list(kvm_state->memcrypt_handle, f);
+}
+
+static int kvm_memcrypt_load_incoming_unencrypt_regions_list(QEMUFile *f)
+{
+    return sev_load_incoming_unencrypt_regions_list(kvm_state->memcrypt_handle, f);
+}
+
 static struct MachineMemoryEncryptionOps sev_memory_encryption_ops = {
     .save_setup = kvm_memcrypt_save_setup,
     .save_outgoing_page = kvm_memcrypt_save_outgoing_page,
     .load_incoming_page = kvm_memcrypt_load_incoming_page,
+    .save_outgoing_unencrypt_regions_list =
+	kvm_memcrypt_save_outgoing_unencrypt_regions_list,
+    .load_incoming_unencrypt_regions_list =
+	kvm_memcrypt_load_incoming_unencrypt_regions_list,
 };
 
 int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len)

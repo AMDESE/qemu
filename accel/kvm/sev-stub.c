@@ -41,3 +41,13 @@ int sev_load_incoming_page(void *handle, QEMUFile *f, uint8_t *ptr)
 {
     return 1;
 }
+
+int sev_save_outgoing_unencrypt_regions_list(void *handle, QEMUFile *f)
+{
+    return 1;
+}
+
+int sev_load_incoming_unencrypt_regions_list(void *handle, QEMUFile *f)
+{
+    return 1;
+}

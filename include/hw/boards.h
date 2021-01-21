@@ -88,10 +88,10 @@ struct MachineMemoryEncryptionOps {
     int (*load_incoming_page)(QEMUFile *f, uint8_t *ptr);
 
     /* Write the unencrypted regions list */
-    int (*save_outgoing_url_list)(QEMUFile *f);
+    int (*save_outgoing_unencrypt_regions_list)(QEMUFile *f);
 
     /* Load the incoming unencrpyted regions list */
-    int (*load_incoming_url_list)(QEMUFile *f);
+    int (*load_incoming_unencrypt_regions_list)(QEMUFile *f);
 };
 
 /**
