@@ -729,6 +729,29 @@ static void kvm_memslot_init_dirty_bitmap(KVMSlot *mem)
     mem->dirty_bmap = g_malloc0(bitmap_size);
 }
 
+/* sync unencrypted regions list */
+static int kvm_sync_unencrypt_regions_list(KVMMemoryListener *kml)
+{
+    KVMState *s = kvm_state;
+    struct kvm_page_enc_list e = {};
+    int nents;
+
+    e.pnents = &nents;
+    e.size = TARGET_PAGE_SIZE;
+    e.buffer = g_malloc0(TARGET_PAGE_SIZE);
+    if (kvm_vm_ioctl(s, KVM_GET_PAGE_ENC_LIST, &e) == -1) {
+        DPRINTF("KVM_GET_PAGE_ENC_LIST ioctl failed %d\n", errno);
+        g_free(e.buffer);
+        return 1;
+    }
+
+    cpu_physical_memory_set_unencrypt_regions_list(e.buffer, nents);
+
+    g_free(e.buffer);
+
+    return 0;
+}
+
 /**
  * kvm_physical_sync_dirty_bitmap - Sync dirty bitmap from kernel space
  *
@@ -781,6 +804,11 @@ static int kvm_physical_sync_dirty_bitmap(KVMMemoryListener *kml,
         slot_offset += slot_size;
         start_addr += slot_size;
         size -= slot_size;
+    }
+    if (kvm_memcrypt_enabled() &&
+        kvm_sync_unencrypt_regions_list(kml)) {
+        g_free(d.dirty_bitmap);
+        ret = -1;
     }
 out:
     return ret;

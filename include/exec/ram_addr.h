@@ -26,6 +26,11 @@
 #include "exec/ramlist.h"
 #include "exec/ramblock.h"
 
+struct page_enc_status_array_entry {
+	unsigned long gfn_start;
+	unsigned long gfn_end;
+};
+
 /**
  * clear_bmap_size: calculate clear bitmap size
  *
@@ -334,6 +339,18 @@ static inline void cpu_physical_memory_set_dirty_range(ram_addr_t start,
 }
 
 #if !defined(_WIN32)
+static inline void cpu_physical_memory_set_unencrypt_regions_list(
+                                                        void *buffer,
+                                                        int nents)
+{
+    void *unencrypt_regions_list;
+    uint32_t size;
+
+    size = nents * sizeof(struct page_enc_status_array_entry);
+    unencrypt_regions_list = g_malloc0(size);
+    memcpy(unencrypt_regions_list, buffer, size);
+}
+
 static inline void cpu_physical_memory_set_dirty_lebitmap(unsigned long *bitmap,
                                                           ram_addr_t start,
                                                           ram_addr_t pages)
@@ -512,5 +529,6 @@ uint64_t cpu_physical_memory_sync_dirty_bitmap(RAMBlock *rb,
 
     return num_dirty;
 }
+
 #endif
 #endif

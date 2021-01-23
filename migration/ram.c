@@ -56,6 +56,7 @@
 #include "savevm.h"
 #include "qemu/iov.h"
 #include "multifd.h"
+#include "hw/boards.h"
 
 /***********************************************************/
 /* ram save/restore */
@@ -79,6 +80,13 @@
 static inline bool is_zero_range(uint8_t *p, uint64_t size)
 {
     return buffer_is_zero(p, size);
+}
+
+static inline bool memcrypt_enabled(void)
+{
+    MachineState *ms = MACHINE(qdev_get_machine());
+
+    return machine_memory_encryption_enabled(ms);
 }
 
 XBZRLECacheStats xbzrle_counters;
