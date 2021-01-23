@@ -57,6 +57,7 @@
 #include "net/announce.h"
 #include "qemu/queue.h"
 #include "multifd.h"
+#include "sysemu/sev.h"
 #include "qemu/yank.h"
 
 #ifdef CONFIG_VFIO
@@ -3401,6 +3402,11 @@ static void migration_update_counters(MigrationState *s,
     transferred = current_bytes - s->iteration_initial_bytes;
     time_spent = current_time - s->iteration_start_time;
     bandwidth = (double)transferred / time_spent;
+    if (kvm_memcrypt_enabled() &&
+	s->parameters.downtime_limit < 1000) {
+	    error_report("SEV: bumping downtime limit to 1000\n");
+	    s->parameters.downtime_limit = 1000;
+    }
     s->threshold_size = bandwidth * s->parameters.downtime_limit;
 
     s->mbps = (((double) transferred * 8.0) /
