@@ -1737,6 +1737,14 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
         return false;
     }
 
+    if (!strcmp(memory_region_name(block->mr), "system.flash0")) {
+	    return true;
+    }
+
+    if (!strcmp(memory_region_name(block->mr), "system.flash1")) {
+	    return false;
+    }
+
     gfn = (page + block->mr->addr) >> TARGET_PAGE_BITS;
 
     for (i=0; i < global_unencrypt_regions_list->nents; i++) {
