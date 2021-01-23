@@ -51,6 +51,8 @@ static QTAILQ_HEAD(, AddressSpace) address_spaces
 
 static GHashTable *flat_views;
 
+struct unencrypt_regions_list *global_unencrypt_regions_list;
+
 typedef struct AddrRange AddrRange;
 
 /*

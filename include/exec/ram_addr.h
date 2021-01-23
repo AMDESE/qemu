@@ -31,6 +31,13 @@ struct page_enc_status_array_entry {
 	unsigned long gfn_end;
 };
 
+struct unencrypt_regions_list {
+	int nents;
+	struct page_enc_status_array_entry entry[];
+};
+
+extern struct unencrypt_regions_list *global_unencrypt_regions_list;
+
 /**
  * clear_bmap_size: calculate clear bitmap size
  *
@@ -343,12 +350,12 @@ static inline void cpu_physical_memory_set_unencrypt_regions_list(
                                                         void *buffer,
                                                         int nents)
 {
-    void *unencrypt_regions_list;
     uint32_t size;
 
-    size = nents * sizeof(struct page_enc_status_array_entry);
-    unencrypt_regions_list = g_malloc0(size);
-    memcpy(unencrypt_regions_list, buffer, size);
+    size = sizeof(int) + nents * sizeof(struct page_enc_status_array_entry);
+    global_unencrypt_regions_list = g_malloc0(size);
+    memcpy(global_unencrypt_regions_list, buffer, size);
+    global_unencrypt_regions_list->nents = nents;
 }
 
 static inline void cpu_physical_memory_set_dirty_lebitmap(unsigned long *bitmap,

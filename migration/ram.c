@@ -58,6 +58,9 @@
 #include "multifd.h"
 #include "hw/boards.h"
 
+/* Defines RAM_SAVE_ENCRYPTED_PAGE and RAM_SAVE_UNENCRYPT_REGIONS_LIST */
+#include "sysemu/sev.h"
+
 /***********************************************************/
 /* ram save/restore */
 
@@ -76,6 +79,7 @@
 #define RAM_SAVE_FLAG_XBZRLE   0x40
 /* 0x80 is reserved in migration.h start with 0x100 next */
 #define RAM_SAVE_FLAG_COMPRESS_PAGE    0x100
+#define RAM_SAVE_FLAG_ENCRYPTED_DATA   0x200
 
 static inline bool is_zero_range(uint8_t *p, uint64_t size)
 {
@@ -463,6 +467,9 @@ static QemuCond decomp_done_cond;
 
 static bool do_compress_ram_page(QEMUFile *f, z_stream *stream, RAMBlock *block,
                                  ram_addr_t offset, uint8_t *source_buf);
+static int ram_save_encrypted_page(RAMState *rs, PageSearchStatus *pss,
+                                   bool last_stage);
+
 
 static void *do_data_compress(void *opaque)
 {
@@ -1164,6 +1171,73 @@ static int save_normal_page(RAMState *rs, RAMBlock *block, ram_addr_t offset,
 }
 
 /**
+ * ram_save_encrypted_page - send the given encrypted page to the stream
+ */
+static int ram_save_encrypted_page(RAMState *rs, PageSearchStatus *pss,
+                                   bool last_stage)
+{
+    int ret;
+    uint8_t *p;
+    RAMBlock *block = pss->block;
+    ram_addr_t offset = pss->page << TARGET_PAGE_BITS;
+    uint64_t bytes_xmit;
+    MachineState *ms = MACHINE(qdev_get_machine());
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
+    struct MachineMemoryEncryptionOps *ops = mc->memory_encryption_ops;
+
+    p = block->host + offset;
+
+    ram_counters.transferred +=
+        save_page_header(rs, rs->f, block,
+                    offset | RAM_SAVE_FLAG_ENCRYPTED_DATA);
+
+    qemu_put_be32(rs->f, RAM_SAVE_ENCRYPTED_PAGE);
+    ret = ops->save_outgoing_page(rs->f, p, TARGET_PAGE_SIZE, &bytes_xmit);
+    if (ret) {
+        return -1;
+    }
+
+    ram_counters.transferred += bytes_xmit;
+    ram_counters.normal++;
+
+    return 1;
+}
+
+/**
+ * ram_save_unencrypt_regions_list: send the unencrypted regions list
+ */
+static int ram_save_unencrypt_regions_list(RAMState *rs, QEMUFile *f)
+{
+    MachineState *ms = MACHINE(qdev_get_machine());
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
+    struct MachineMemoryEncryptionOps *ops = mc->memory_encryption_ops;
+
+    save_page_header(rs, rs->f, rs->last_seen_block,
+                     RAM_SAVE_FLAG_ENCRYPTED_DATA);
+    qemu_put_be32(rs->f, RAM_SAVE_UNENCRYPT_REGIONS_LIST);
+    return ops->save_outgoing_unencrypt_regions_list(rs->f);
+}
+
+static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
+{
+    MachineState *ms = MACHINE(qdev_get_machine());
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
+    struct MachineMemoryEncryptionOps *ops = mc->memory_encryption_ops;
+    int flag;
+
+    flag = qemu_get_be32(f);
+
+    if (flag == RAM_SAVE_ENCRYPTED_PAGE) {
+        return ops->load_incoming_page(f, ptr);
+    } else if (flag == RAM_SAVE_UNENCRYPT_REGIONS_LIST) {
+        return ops->load_incoming_unencrypt_regions_list(f);
+    } else {
+        error_report("unknown encrypted flag %x", flag);
+        return 1;
+    }
+}
+
+/**
  * ram_save_page: send the given page to the stream
  *
  * Returns the number of pages written.
@@ -1648,6 +1722,33 @@ static bool save_compress_page(RAMState *rs, RAMBlock *block, ram_addr_t offset)
 }
 
 /**
+ * encrypted_test_list: check if the page is encrypted
+ *
+ * Returns a bool indicating whether the page is encrypted.
+ */
+static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
+                                  unsigned long page)
+{
+    int i;
+    unsigned long gfn;
+
+    /* ROM devices contains the unencrypted data */
+    if (memory_region_is_rom(block->mr)) {
+        return false;
+    }
+
+    gfn = (page + block->mr->addr) >> TARGET_PAGE_BITS;
+
+    for (i=0; i < global_unencrypt_regions_list->nents; i++) {
+	    if (gfn >= global_unencrypt_regions_list->entry[i].gfn_start &&
+		gfn <= global_unencrypt_regions_list->entry[i].gfn_end)
+		    return 0;
+    }
+
+    return 1;
+}
+
+/**
  * ram_save_target_page: save one target page
  *
  * Returns the number of pages written
@@ -1665,6 +1766,17 @@ static int ram_save_target_page(RAMState *rs, PageSearchStatus *pss,
 
     if (control_save_page(rs, block, offset, &res)) {
         return res;
+    }
+
+    /*
+     * If memory encryption is enabled then use memory encryption APIs
+     * to write the outgoing buffer to the wire. The encryption APIs
+     * will take care of accessing the guest memory and re-encrypt it
+     * for the transport purposes.
+     */
+    if (memcrypt_enabled() &&
+        encrypted_test_list(rs, pss->block, pss->page)) {
+        return ram_save_encrypted_page(rs, pss, last_stage);
     }
 
     if (save_compress_page(rs, block, offset)) {
@@ -2456,6 +2568,16 @@ void qemu_guest_free_page_hint(void *addr, size_t len)
     }
 }
 
+static int ram_encrypted_save_setup(void)
+{
+    MachineState *ms = MACHINE(qdev_get_machine());
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
+    MigrationParameters *p = &migrate_get_current()->parameters;
+    struct MachineMemoryEncryptionOps *ops = mc->memory_encryption_ops;
+
+    return ops->save_setup(p->sev_pdh, p->sev_plat_cert, p->sev_amd_cert);
+}
+
 /*
  * Each of ram_save_setup, ram_save_iterate and ram_save_complete has
  * long-running RCU critical section.  When rcu-reclaims in the code
@@ -2490,6 +2612,13 @@ static int ram_save_setup(QEMUFile *f, void *opaque)
     (*rsp)->f = f;
 
     WITH_RCU_READ_LOCK_GUARD() {
+
+	if (memcrypt_enabled()) {
+		if (ram_encrypted_save_setup()) {
+			return -1;
+		}
+	}
+
         qemu_put_be64(f, ram_bytes_total_common(true) | RAM_SAVE_FLAG_MEM_SIZE);
 
         RAMBLOCK_FOREACH_MIGRATABLE(block) {
@@ -2665,6 +2794,11 @@ static int ram_save_complete(QEMUFile *f, void *opaque)
 
         flush_compressed_data(rs);
         ram_control_after_iterate(f, RAM_CONTROL_FINISH);
+
+	/* send the unencrypted regions list */
+	if (memcrypt_enabled()) {
+		ret = ram_save_unencrypt_regions_list(rs, f);
+	}
     }
 
     if (ret >= 0) {
@@ -3461,7 +3595,8 @@ static int ram_load_precopy(QEMUFile *f)
         }
 
         if (flags & (RAM_SAVE_FLAG_ZERO | RAM_SAVE_FLAG_PAGE |
-                     RAM_SAVE_FLAG_COMPRESS_PAGE | RAM_SAVE_FLAG_XBZRLE)) {
+                     RAM_SAVE_FLAG_COMPRESS_PAGE | RAM_SAVE_FLAG_XBZRLE |
+                     RAM_SAVE_FLAG_ENCRYPTED_DATA)) {
             RAMBlock *block = ram_block_from_stream(f, flags);
 
             host = host_from_ram_block_offset(block, addr);
@@ -3588,6 +3723,12 @@ static int ram_load_precopy(QEMUFile *f)
                              RAM_ADDR_FMT, addr);
                 ret = -EINVAL;
                 break;
+            }
+            break;
+        case RAM_SAVE_FLAG_ENCRYPTED_DATA:
+            if (load_encrypted_data(f, host)) {
+                    error_report("Failed to load encrypted data");
+                    ret = -EINVAL;
             }
             break;
         case RAM_SAVE_FLAG_EOS:
