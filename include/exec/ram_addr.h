@@ -353,8 +353,10 @@ static inline void cpu_physical_memory_set_unencrypt_regions_list(
     uint32_t size;
 
     size = sizeof(int) + nents * sizeof(struct page_enc_status_array_entry);
-    global_unencrypt_regions_list = g_malloc0(size);
-    memcpy(global_unencrypt_regions_list, buffer, size);
+    if (!global_unencrypt_regions_list)
+	global_unencrypt_regions_list = g_malloc0(size);
+    memcpy(&global_unencrypt_regions_list->entry[0], buffer, size - sizeof(int));
+
     global_unencrypt_regions_list->nents = nents;
 }
 

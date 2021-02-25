@@ -912,12 +912,6 @@ sev_guest_init(const char *id)
         goto err;
     }
 
-    ret = sev_launch_start(sev);
-    if (ret) {
-        error_report("%s: failed to create encryption context", __func__);
-        goto err;
-    }
-
     /*
      * The LAUNCH context is used for new guest, if its an incoming guest
      * then RECEIVE context will be created after the connection is established.
@@ -1388,7 +1382,7 @@ int sev_load_incoming_unencrypt_regions_list(void *handle, QEMUFile *f)
 
     status = qemu_get_be32(f);
 
-    if (status != UNENCRYPT_REGIONS_LIST_START) {
+    if (status == UNENCRYPT_REGIONS_LIST_START) {
         nents = qemu_get_be32(f);
         size = nents * sizeof(struct page_enc_status_array_entry);
 

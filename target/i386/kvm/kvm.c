@@ -1462,6 +1462,8 @@ static Error *invtsc_mig_blocker;
 
 #define KVM_MAX_CPUID_ENTRIES  100
 
+#define KVM_FEATURE_SEV_LIVE_MIGRATION	16
+
 int kvm_arch_init_vcpu(CPUState *cs)
 {
     struct {
@@ -1534,6 +1536,8 @@ int kvm_arch_init_vcpu(CPUState *cs)
         c = &cpuid_data.entries[cpuid_i++];
         c->function = KVM_CPUID_FEATURES | kvm_base;
         c->eax = env->features[FEAT_KVM];
+	error_report("enabling SEV Live Migration feature\n");
+	c->eax |= (1 << KVM_FEATURE_SEV_LIVE_MIGRATION);
         c->edx = env->features[FEAT_KVM_HINTS];
     }
 
@@ -1901,6 +1905,7 @@ int kvm_arch_destroy_vcpu(CPUState *cs)
 
 void kvm_arch_reset_vcpu(X86CPU *cpu)
 {
+    KVMState *s = CPU(cpu)->kvm_state;
     CPUX86State *env = &cpu->env;
 
     env->xcr0 = 1;
@@ -1919,6 +1924,16 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
 
         hyperv_x86_synic_reset(cpu);
     }
+
+    if (cpu_is_bsp(cpu) && kvm_memcrypt_enabled()) {
+	struct kvm_page_enc_list e = {};
+	int nents = 0;
+
+        e.pnents = &nents;
+        e.buffer = NULL;
+	kvm_vm_ioctl(s, KVM_SET_PAGE_ENC_LIST, &e);
+    }
+
     /* enabled by default */
     env->poll_control_msr = 1;
 

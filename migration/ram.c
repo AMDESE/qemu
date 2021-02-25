@@ -1725,6 +1725,7 @@ static bool save_compress_page(RAMState *rs, RAMBlock *block, ram_addr_t offset)
  * encrypted_test_list: check if the page is encrypted
  *
  * Returns a bool indicating whether the page is encrypted.
+ *
  */
 static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
                                   unsigned long page)
@@ -1745,15 +1746,20 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
 	    return false;
     }
 
-    gfn = (page + block->mr->addr) >> TARGET_PAGE_BITS;
+    /*
+     * Translate page in ram_addr_t address space to GPA address
+     * space using memory region.
+     */
+    gfn = page + (block->mr->addr >> TARGET_PAGE_BITS);
 
     for (i=0; i < global_unencrypt_regions_list->nents; i++) {
 	    if (gfn >= global_unencrypt_regions_list->entry[i].gfn_start &&
-		gfn <= global_unencrypt_regions_list->entry[i].gfn_end)
-		    return 0;
+		gfn < global_unencrypt_regions_list->entry[i].gfn_end) {
+		    return false;
+	    }
     }
 
-    return 1;
+    return true;
 }
 
 /**

@@ -735,11 +735,12 @@ static int kvm_sync_unencrypt_regions_list(KVMMemoryListener *kml)
     KVMState *s = kvm_state;
     struct kvm_page_enc_list e = {};
     int nents;
+    int ret = 0;
 
     e.pnents = &nents;
     e.size = TARGET_PAGE_SIZE;
     e.buffer = g_malloc0(TARGET_PAGE_SIZE);
-    if (kvm_vm_ioctl(s, KVM_GET_PAGE_ENC_LIST, &e) == -1) {
+    if ((ret = kvm_vm_ioctl(s, KVM_GET_PAGE_ENC_LIST, &e)) < 0) {
         DPRINTF("KVM_GET_PAGE_ENC_LIST ioctl failed %d\n", errno);
         g_free(e.buffer);
         return 1;
@@ -807,8 +808,8 @@ static int kvm_physical_sync_dirty_bitmap(KVMMemoryListener *kml,
     }
     if (kvm_memcrypt_enabled() &&
         kvm_sync_unencrypt_regions_list(kml)) {
-        g_free(d.dirty_bitmap);
-        ret = -1;
+        //g_free(d.dirty_bitmap);
+        //ret = -1;
     }
 out:
     return ret;
