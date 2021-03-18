@@ -1612,6 +1612,10 @@ static int vtd_address_space_sync(VTDAddressSpace *vtd_as)
     int ret;
     VTDContextEntry ce;
     IOMMUNotifier *n;
+    IntelIOMMUState *s = vtd_as->iommu_state;
+
+    if (s->scalable_modern && s->root_scalable)
+        return 0;
 
     /* If no MAP notifier registered, we simply invalidate all the cache */
     if (!vtd_as_has_map_notifier(vtd_as)) {
