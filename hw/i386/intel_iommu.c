@@ -1599,6 +1599,10 @@ static int vtd_sync_shadow_page_table(VTDAddressSpace *vtd_as)
     int ret;
     VTDContextEntry ce;
     IOMMUNotifier *n;
+    IntelIOMMUState *s = vtd_as->iommu_state;
+
+    if (s->scalable_modern && s->root_scalable)
+        return 0;
 
     if (!(vtd_as->iommu.iommu_notify_flags & IOMMU_NOTIFIER_IOTLB_EVENTS)) {
         return 0;
