@@ -1970,6 +1970,13 @@ static int vtd_flt_page_walk_level(dma_addr_t addr,
     uint64_t subpage_size, subpage_mask;
     int ret = 0;
     IOMMUTLBEvent event;
+    IOMMUNotifier *n;
+    IOMMUMemoryRegion *iommu = (IOMMUMemoryRegion *)info->private;
+
+    IOMMU_NOTIFIER_FOREACH(n, iommu) {
+        if (n->iommu_idx == 0)
+            break;
+    }
 
     subpage_size = 1ULL << vtd_flpt_level_shift(level);
     subpage_mask = vtd_flpt_level_page_mask(level);
@@ -1999,9 +2006,12 @@ static int vtd_flt_page_walk_level(dma_addr_t addr,
         } else {
             event.type = IOMMU_NOTIFIER_UNMAP;
             event.entry.target_as = &address_space_memory;
-            event.entry.iova = iova & subpage_mask;
+            event.entry.iova = ((iova & subpage_mask) < n->start) ?
+                               n->start : iova & subpage_mask;
             event.entry.perm = IOMMU_ACCESS_FLAG(read, write);;
-            event.entry.addr_mask = ~subpage_mask;
+            event.entry.addr_mask =
+                    ((event.entry.iova + event.entry.addr_mask) > n->end) ?
+                    (n->end - event.entry.iova) : ~subpage_mask;
             event.entry.translated_addr = vtd_get_flpte_addr(flpte, info->aw);
             if (info->hook_fn(&event, info->private) < 0) {
                 return ret;
