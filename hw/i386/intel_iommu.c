@@ -806,7 +806,7 @@ static int vtd_get_pdire_from_pdir_table(dma_addr_t pasid_dir_base,
     addr = pasid_dir_base + index * entry_size;
     if (dma_memory_read(&address_space_memory, addr,
                         pdire, entry_size, MEMTXATTRS_UNSPECIFIED)) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_PASID_DIR_ACCESS_ERR;
     }
 
     return 0;
@@ -817,6 +817,11 @@ static inline bool vtd_pe_present(VTDPASIDEntry *pe)
     return pe->val[0] & VTD_PASID_ENTRY_P;
 }
 
+static inline uint32_t vtd_pe_get_flpt_level(VTDPASIDEntry *pe)
+{
+    return (4 + ((pe->val[2] >> 2) & VTD_SM_PASID_ENTRY_FLPM));
+}
+
 static int vtd_get_pe_in_pasid_leaf_table(IntelIOMMUState *s,
                                           uint32_t pasid,
                                           dma_addr_t addr,
@@ -825,23 +830,29 @@ static int vtd_get_pe_in_pasid_leaf_table(IntelIOMMUState *s,
     uint32_t index;
     dma_addr_t entry_size;
     X86IOMMUState *x86_iommu = X86_IOMMU_DEVICE(s);
+    uint8_t pgtt;
 
     index = VTD_PASID_TABLE_INDEX(pasid);
     entry_size = VTD_PASID_ENTRY_SIZE;
     addr = addr + index * entry_size;
     if (dma_memory_read(&address_space_memory, addr,
                         pe, entry_size, MEMTXATTRS_UNSPECIFIED)) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_PASID_TABLE_ACCESS_ERR;
     }
 
     /* Do translation type check */
     if (!vtd_pe_type_check(x86_iommu, pe)) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_PASID_TABLE_ENTRY_INV;
     }
 
-    if (!vtd_is_level_supported(s, VTD_PE_GET_LEVEL(pe))) {
-        return -VTD_FR_PASID_TABLE_INV;
-    }
+    pgtt = VTD_PE_GET_TYPE(pe);
+    if (pgtt == VTD_SM_PASID_ENTRY_SLT &&
+        !vtd_is_level_supported(s, VTD_PE_GET_LEVEL(pe)))
+            return -VTD_FR_PASID_TABLE_ENTRY_INV;
+
+    if (pgtt == VTD_SM_PASID_ENTRY_FLT &&
+        vtd_pe_get_flpt_level(pe) != 4)
+            return -VTD_FR_PASID_TABLE_ENTRY_INV;
 
     return 0;
 }
@@ -881,7 +892,7 @@ static int vtd_get_pe_from_pasid_table(IntelIOMMUState *s,
     }
 
     if (!vtd_pdire_present(&pdire)) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_PASID_DIR_ENTRY_P;
     }
 
     ret = vtd_get_pe_from_pdire(s, pasid, &pdire, pe);
@@ -890,7 +901,7 @@ static int vtd_get_pe_from_pasid_table(IntelIOMMUState *s,
     }
 
     if (!vtd_pe_present(pe)) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_PASID_ENTRY_P;
     }
 
     return 0;
@@ -943,7 +954,7 @@ static int vtd_ce_get_pasid_fpd(IntelIOMMUState *s,
     }
 
     if (!vtd_pdire_present(&pdire)) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_PASID_DIR_ENTRY_P;
     }
 
     /*
@@ -1824,7 +1835,11 @@ static const bool vtd_qualified_faults[] = {
     [VTD_FR_ROOT_ENTRY_RSVD] = false,
     [VTD_FR_PAGING_ENTRY_RSVD] = true,
     [VTD_FR_CONTEXT_ENTRY_TT] = true,
-    [VTD_FR_PASID_TABLE_INV] = false,
+    [VTD_FR_PASID_DIR_ACCESS_ERR] = false,
+    [VTD_FR_PASID_DIR_ENTRY_P] = true,
+    [VTD_FR_PASID_TABLE_ACCESS_ERR] = false,
+    [VTD_FR_PASID_ENTRY_P] = true,
+    [VTD_FR_PASID_TABLE_ENTRY_INV] = true,
     [VTD_FR_SM_INTERRUPT_ADDR] = true,
     [VTD_FR_MAX] = false,
 };
@@ -1897,11 +1912,6 @@ static inline uint32_t vtd_flpt_level_shift(uint32_t level)
 static inline uint64_t vtd_flpt_level_page_mask(uint32_t level)
 {
     return ~((1ULL << vtd_flpt_level_shift(level)) - 1);
-}
-
-static inline dma_addr_t vtd_pe_get_flpt_level(VTDPASIDEntry *pe)
-{
-    return (4 + ((pe->val[2] >> 2) & VTD_SM_PASID_ENTRY_FLPM));
 }
 
 /* Given an iova and the level of paging structure, return the offset
@@ -3425,7 +3435,7 @@ static inline int vtd_dev_get_pe_from_pasid(IntelIOMMUState *s,
     dma_addr_t pasid_dir_base;
 
     if (!s->root_scalable) {
-        return -VTD_FR_PASID_TABLE_INV;
+        return -VTD_FR_RTADDR_INV_TTM;
     }
 
     ret = vtd_dev_to_context_entry(s, bus_num, devfn, &ce);
