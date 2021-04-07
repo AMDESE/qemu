@@ -1857,6 +1857,7 @@ static const bool vtd_qualified_faults[] = {
     [VTD_FR_PASID_TABLE_ACCESS_ERR] = false,
     [VTD_FR_PASID_ENTRY_P] = true,
     [VTD_FR_PASID_TABLE_ENTRY_INV] = true,
+    [VTD_FR_ADDR_NONCANONICAL] = true,
     [VTD_FR_SM_INTERRUPT_ADDR] = true,
     [VTD_FR_MAX] = false,
 };
@@ -1973,6 +1974,25 @@ static inline uint64_t vtd_get_flpte_addr(uint64_t flpte, uint8_t aw)
     return flpte & VTD_FL_PT_BASE_ADDR_MASK(aw);
 }
 
+/* Return true if IOVA passes canonicality check, otherwise false. */
+static inline bool vtd_iova_canonicality_check(uint64_t iova,
+                                               uint32_t level)
+{
+    uint64_t va;
+    uint8_t va_bits;
+
+    if (level != 4) {
+        error_report_once("%s: invalid level(%d) for first level paging.",
+                          __func__, level);
+        return false;
+
+    }
+
+    va_bits = (level * VTD_FL_LEVEL_BITS) + 12;
+    va = (uint64_t)(((long)iova << (64 - va_bits)) >> (64 - va_bits));
+    return va == iova;
+}
+
 static int vtd_flt_page_walk_level(dma_addr_t addr,
                                    uint64_t start, uint64_t end,
                                    uint32_t level, vtd_page_walk_info *info)
@@ -2056,6 +2076,14 @@ static int vtd_flt_page_walk(IntelIOMMUState *s, VTDContextEntry *ce,
 
     addr = vtd_pe_get_flpt_base(&pe);
     level = vtd_pe_get_flpt_level(&pe);
+    if (level != 4) {
+        return VTD_FR_PASID_TABLE_ENTRY_INV;
+    }
+
+    if (!vtd_iova_canonicality_check(start, level) ||
+        !vtd_iova_canonicality_check(end, level)) {
+            return -VTD_FR_ADDR_NONCANONICAL;
+    }
 
     if (!vtd_iova_range_check(s, start, ce, info->aw, pasid)) {
         return -VTD_FR_ADDR_BEYOND_MGAW;
@@ -2097,6 +2125,14 @@ static int vtd_iova_to_flpte(VTDPASIDEntry *pe, uint64_t iova, bool is_write,
     uint32_t level = vtd_pe_get_flpt_level(pe);
     uint32_t offset;
     uint64_t flpte;
+
+    if (level != 4) {
+        return -VTD_FR_PASID_TABLE_ENTRY_INV;
+    }
+
+    if (!vtd_iova_canonicality_check(iova, level)) {
+        return -VTD_FR_ADDR_NONCANONICAL;
+    }
 
     while (true) {
         offset = vtd_iova_fl_level_offset(iova, level);

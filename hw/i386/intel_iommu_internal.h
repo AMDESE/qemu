@@ -335,6 +335,8 @@ typedef enum VTDFaultReason {
     VTD_FR_PASID_TABLE_ACCESS_ERR = 0x58,  /* PASID table entry access failure */
     VTD_FR_PASID_ENTRY_P = 0x59, /* The Present(P) field of pasidt-entry is 0 */
     VTD_FR_PASID_TABLE_ENTRY_INV = 0x5b,  /*Invalid PASID table entry */
+    /* Address subjected to first-level translation is not canonical */
+    VTD_FR_ADDR_NONCANONICAL = 0x80,
 
     /* Output address in the interrupt address range for scalable mode */
     VTD_FR_SM_INTERRUPT_ADDR = 0x87,
