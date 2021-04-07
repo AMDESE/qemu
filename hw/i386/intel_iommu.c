@@ -832,6 +832,18 @@ static inline uint32_t vtd_pe_get_flpt_level(VTDPASIDEntry *pe)
     return (4 + ((pe->val[2] >> 2) & VTD_SM_PASID_ENTRY_FLPM));
 }
 
+/* Check if the first level paging mode is supported */
+static inline bool vtd_is_flpm_supported(IntelIOMMUState *s, uint32_t level)
+{
+    if (level != 4 && level != 5)
+        return false;
+
+    if (level == 5)
+        return !!(s->cap & VTD_CAP_FL5LP);
+
+    return true;
+}
+
 static int vtd_get_pe_in_pasid_leaf_table(IntelIOMMUState *s,
                                           uint32_t pasid,
                                           dma_addr_t addr,
@@ -864,9 +876,9 @@ static int vtd_get_pe_in_pasid_leaf_table(IntelIOMMUState *s,
             return -VTD_FR_PASID_TABLE_ENTRY_INV;
 
     if (pgtt == VTD_SM_PASID_ENTRY_FLT &&
-        vtd_pe_get_flpt_level(pe) != 4)
+        !vtd_is_flpm_supported(s, vtd_pe_get_flpt_level(pe))) {
             return -VTD_FR_PASID_TABLE_ENTRY_INV;
-
+    }
     return 0;
 }
 
@@ -1981,7 +1993,7 @@ static inline bool vtd_iova_canonicality_check(uint64_t iova,
     uint64_t va;
     uint8_t va_bits;
 
-    if (level != 4) {
+    if (level != 4 && level != 5) {
         error_report_once("%s: invalid level(%d) for first level paging.",
                           __func__, level);
         return false;
@@ -2076,7 +2088,7 @@ static int vtd_flt_page_walk(IntelIOMMUState *s, VTDContextEntry *ce,
 
     addr = vtd_pe_get_flpt_base(&pe);
     level = vtd_pe_get_flpt_level(&pe);
-    if (level != 4) {
+    if (!vtd_is_flpm_supported(s, level)) {
         return VTD_FR_PASID_TABLE_ENTRY_INV;
     }
 
@@ -2119,14 +2131,15 @@ static int vtd_sync_flt_range(VTDAddressSpace *vtd_as,
  */
 static int vtd_iova_to_flpte(VTDPASIDEntry *pe, uint64_t iova, bool is_write,
                              uint64_t *flptep, uint32_t *flpte_level,
-                             bool *reads, bool *writes, uint8_t aw_bits)
+                             bool *reads, bool *writes, IntelIOMMUState *s)
 {
     dma_addr_t addr = vtd_pe_get_flpt_base(pe);
     uint32_t level = vtd_pe_get_flpt_level(pe);
     uint32_t offset;
     uint64_t flpte;
+    uint8_t aw_bits = s->aw_bits;
 
-    if (level != 4) {
+    if (!vtd_is_flpm_supported(s, level)) {
         return -VTD_FR_PASID_TABLE_ENTRY_INV;
     }
 
@@ -2335,7 +2348,7 @@ static bool vtd_do_iommu_fl_translate(VTDAddressSpace *vtd_as, PCIBus *bus,
     }
 
     ret = vtd_iova_to_flpte(&pe, addr, is_write, &flpte, &level,
-                            &reads, &writes, s->aw_bits);
+                            &reads, &writes, s);
     if (ret) {
         vtd_report_fault(s, -ret, is_fpd_set, source_id, addr, is_write,
                          false, PCI_NO_PASID);
