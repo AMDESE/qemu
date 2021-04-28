@@ -80,6 +80,23 @@ typedef struct __attribute__((__packed__)) SevInfoBlock {
     uint32_t reset_addr;
 } SevInfoBlock;
 
+#define SEV_SNP_BOOT_BLOCK_GUID "bd39c0c2-2f8e-4243-83e8-1b74cebcb7d9"
+typedef struct __attribute__((__packed__)) SevSnpBootInfoBlock {
+    /* CPUID Page address */
+    uint32_t cpuid_addr;
+    uint32_t cpuid_len;
+    /* Prevalidate range address */
+    uint32_t pre_validated_start;
+    uint32_t pre_validated_end;
+} SevSnpBootInfoBlock;
+
+#define SEV_SECRET_BLOCK_GUID "4c2eb361-7d9b-4cc3-8081-127c90d3d294"
+typedef struct __attribute__((__packed__)) SevSecretInfoBlock {
+    /* SEV Secret address */
+    uint32_t secret_addr;
+    uint32_t secret_len;
+} SevSecretInfoBlock;
+
 static SevGuestState *sev_guest;
 static Error *sev_mig_blocker;
 
@@ -1023,6 +1040,135 @@ sev_es_parse_reset_block(SevInfoBlock *info, uint32_t *addr)
     return 0;
 }
 
+static int
+sev_snp_launch_update_gpa(uint32_t hwaddr, uint32_t size, uint8_t type)
+{
+    void *hva;
+    MemoryRegion *mr = NULL;
+
+    hva = gpa2hva(&mr, hwaddr, size, NULL);
+    if (!hva) {
+        error_report("SEV-SNP failed to get HVA for GPA 0x%x", hwaddr);
+        return 1;
+    }
+
+    return sev_snp_launch_update(hva, size, type);
+}
+
+struct snp_pre_validated_range {
+    uint32_t start;
+    uint32_t end;
+};
+
+static struct snp_pre_validated_range pre_validated[2];
+
+static bool
+detectoverlap(uint32_t start, uint32_t end,
+              struct snp_pre_validated_range *overlap)
+{
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(pre_validated); i++) {
+        if (pre_validated[i].start < end && start < pre_validated[i].end) {
+            memcpy(overlap, &pre_validated[i], sizeof(*overlap));
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static int reserve_snp_boot_pages(void)
+{
+    struct snp_pre_validated_range overlap;
+    SevSecretInfoBlock *secret_info;
+    SevSnpBootInfoBlock *info;
+    uint32_t start, end, sz;
+    int ret;
+
+    /*
+     * Extract the Secrets page for the SEV-SNP guests by locating the
+     * SEV_SECRET GUID. The Secrets GUID is located on its own.
+     */
+    if (!pc_system_ovmf_table_find(SEV_SECRET_BLOCK_GUID,
+        (uint8_t **)&secret_info, NULL)) {
+        error_report("SEV-SNP: failed to find the secret block\n");
+        return 1;
+    }
+
+    /*
+     * Extract the SNP boot block for the SEV-SNP guests by locating the
+     * SNP_BOOT GUID. The boot block contains the information such as CPUID
+     * page location and the range of memory that need to be pre-validated for
+     * OVMF to boot.
+     */
+    if (!pc_system_ovmf_table_find(SEV_SNP_BOOT_BLOCK_GUID,
+        (uint8_t **)&info, NULL)) {
+        error_report("SEV-SNP: failed to find the SNP boot block\n");
+        return 1;
+    }
+
+    /* Insert the secret page */
+    ret = sev_snp_launch_update_gpa(secret_info->secret_addr,
+                secret_info->secret_len, KVM_SEV_SNP_PAGE_TYPE_SECRETS);
+    if (ret) {
+        error_report("SEV-SNP: failed to insert secret page GPA 0x%x\n",
+                secret_info->secret_addr);
+        return 1;
+    }
+
+    /* Insert the cpuid page */
+    ret = sev_snp_launch_update_gpa(info->cpuid_addr, info->cpuid_len,
+                KVM_SEV_SNP_PAGE_TYPE_CPUID);
+    if (ret) {
+        error_report("SEV-SNP: failed to insert cpuid page GPA 0x%x\n",
+                info->cpuid_addr);
+        return 1;
+    }
+
+    /* 
+     * Pre-validate the range using the LAUNCH_UPDATE_DATA, if the pre-validation
+     * range contains the CPUID and Secret page GPA then skip it. This is because
+     * SEV-SNP firmware has pre-validates those pages as part previous LAUNCH_UPDATE_DATA.
+     */
+    pre_validated[0].start = secret_info->secret_addr;
+    pre_validated[0].end = secret_info->secret_addr + secret_info->secret_len;
+    pre_validated[1].start = info->cpuid_addr;
+    pre_validated[1].end = info->cpuid_addr + info->cpuid_len;
+    start = info->pre_validated_start;
+    end = info->pre_validated_end;
+
+    while (start < end) {
+        /* Check if the requested range overlaps with Secrets and CPUID page ? */
+        if (detectoverlap(start, end, &overlap)) {
+            if (start < overlap.start) {
+                sz = overlap.start - start;
+                if (sev_snp_launch_update_gpa(start, sz,
+                    KVM_SEV_SNP_PAGE_TYPE_UNMEASURED)) {
+                    error_report("SEV-SNP: failed to validate gpa %x sz %x\n",
+                            start, sz);
+                    return 1;
+                }
+            }
+
+            start = overlap.end;
+            continue;
+        }
+
+        /* Validate the remaining range */
+        if (sev_snp_launch_update_gpa(start, end - start,
+            KVM_SEV_SNP_PAGE_TYPE_UNMEASURED)) {
+            error_report("SEV-SNP: failed to validate gpa 0x%x sz %x\n",
+                    start, end - start);
+            return 1;
+        }
+
+        start = end;
+    }
+
+    return 0;
+}
+
 int
 sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
                          uint32_t *addr)
@@ -1041,6 +1187,14 @@ sev_es_save_reset_vector(void *handle, void *flash_ptr, uint64_t flash_size,
     *addr = 0;
     if (!sev_es_enabled()) {
         return 0;
+    }
+
+    /*
+     * If SEV-SNP is enabled then locate the SNP Boot block and Secrets GUID and
+     * call the SEV-SNP firmware command to populate those pages.
+     */
+    if (sev_snp_enabled() && reserve_snp_boot_pages()) {
+        exit(1);
     }
 
     /*
