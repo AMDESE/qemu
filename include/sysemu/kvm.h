@@ -266,6 +266,8 @@ void kvm_memcrypt_set_reset_vector(CPUState *cpu);
  */
 int kvm_memcrypt_save_reset_vector(void *flash_prt, uint64_t flash_size);
 
+bool kvm_memcrypt_is_gfn_in_unshared_region(unsigned long gfn);
+
 #ifdef NEED_CPU_H
 #include "cpu.h"
 
@@ -280,6 +282,7 @@ int kvm_update_guest_debug(CPUState *cpu, unsigned long reinject_trap);
 
 int kvm_on_sigbus_vcpu(CPUState *cpu, int code, void *addr);
 int kvm_on_sigbus(int code, void *addr);
+void dump_cdll(void);
 
 /* interface with exec.c */
 
@@ -457,6 +460,8 @@ bool kvm_arch_stop_on_emulation_error(CPUState *cpu);
 int kvm_check_extension(KVMState *s, unsigned int extension);
 
 int kvm_vm_check_extension(KVMState *s, unsigned int extension);
+
+void kvm_dump_shared_region(void);
 
 #define kvm_vm_enable_cap(s, capability, cap_flags, ...)             \
     ({                                                               \

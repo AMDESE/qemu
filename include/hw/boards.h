@@ -87,11 +87,14 @@ struct MachineMemoryEncryptionOps {
     /* Load the incoming encrypted page into guest memory */
     int (*load_incoming_page)(QEMUFile *f, uint8_t *ptr);
 
-    /* Write the unencrypted regions list */
-    int (*save_outgoing_unencrypt_regions_list)(QEMUFile *f);
+    /* Check if gfn is in shared/unencrypted region */
+    bool (*is_gfn_in_unshared_region)(unsigned long gfn);
 
-    /* Load the incoming unencrpyted regions list */
-    int (*load_incoming_unencrypt_regions_list)(QEMUFile *f);
+    /* Write the shared regions list */
+    int (*save_outgoing_shared_regions_list)(QEMUFile *f);
+
+    /* Load the shared regions list */
+    int (*load_incoming_shared_regions_list)(QEMUFile *f);
 };
 
 /**

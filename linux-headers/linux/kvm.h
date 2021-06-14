@@ -320,6 +320,7 @@ struct kvm_run {
 			__u8  is_write;
 		} mmio;
 		/* KVM_EXIT_HYPERCALL */
+#define KVM_HC_PAGE_ENC_STATUS		12
 		struct {
 			__u64 nr;
 			__u64 args[6];
@@ -1060,6 +1061,7 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_X86_USER_SPACE_MSR 188
 #define KVM_CAP_X86_MSR_FILTER 189
 #define KVM_CAP_ENFORCE_PV_FEATURE_CPUID 190
+#define KVM_CAP_EXIT_HYPERCALL 199
 
 #ifdef KVM_CAP_IRQ_ROUTING
 

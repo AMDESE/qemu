@@ -1204,9 +1204,9 @@ static int ram_save_encrypted_page(RAMState *rs, PageSearchStatus *pss,
 }
 
 /**
- * ram_save_unencrypt_regions_list: send the unencrypted regions list
+ * ram_save_shared_regions_list: send the shared regions list
  */
-static int ram_save_unencrypt_regions_list(RAMState *rs, QEMUFile *f)
+static int ram_save_shared_regions_list(RAMState *rs, QEMUFile *f)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
     MachineClass *mc = MACHINE_GET_CLASS(ms);
@@ -1215,7 +1215,7 @@ static int ram_save_unencrypt_regions_list(RAMState *rs, QEMUFile *f)
     save_page_header(rs, rs->f, rs->last_seen_block,
                      RAM_SAVE_FLAG_ENCRYPTED_DATA);
     qemu_put_be32(rs->f, RAM_SAVE_UNENCRYPT_REGIONS_LIST);
-    return ops->save_outgoing_unencrypt_regions_list(rs->f);
+    return ops->save_outgoing_shared_regions_list(rs->f);
 }
 
 static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
@@ -1230,7 +1230,7 @@ static int load_encrypted_data(QEMUFile *f, uint8_t *ptr)
     if (flag == RAM_SAVE_ENCRYPTED_PAGE) {
         return ops->load_incoming_page(f, ptr);
     } else if (flag == RAM_SAVE_UNENCRYPT_REGIONS_LIST) {
-        return ops->load_incoming_unencrypt_regions_list(f);
+        return ops->load_incoming_shared_regions_list(f);
     } else {
         error_report("unknown encrypted flag %x", flag);
         return 1;
@@ -1725,12 +1725,16 @@ static bool save_compress_page(RAMState *rs, RAMBlock *block, ram_addr_t offset)
  * encrypted_test_list: check if the page is encrypted
  *
  * Returns a bool indicating whether the page is encrypted.
+ *
  */
 static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
                                   unsigned long page)
 {
-    int i;
+    MachineState *ms = MACHINE(qdev_get_machine());
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
+    struct MachineMemoryEncryptionOps *ops = mc->memory_encryption_ops;
     unsigned long gfn;
+    int ret;
 
     /* ROM devices contains the unencrypted data */
     if (memory_region_is_rom(block->mr)) {
@@ -1745,15 +1749,14 @@ static bool encrypted_test_list(RAMState *rs, RAMBlock *block,
 	    return false;
     }
 
-    gfn = (page + block->mr->addr) >> TARGET_PAGE_BITS;
+    /*
+     * Translate page in ram_addr_t address space to GPA address
+     * space using memory region.
+     */
+    gfn = page + (block->mr->addr >> TARGET_PAGE_BITS);
 
-    for (i=0; i < global_unencrypt_regions_list->nents; i++) {
-	    if (gfn >= global_unencrypt_regions_list->entry[i].gfn_start &&
-		gfn <= global_unencrypt_regions_list->entry[i].gfn_end)
-		    return 0;
-    }
-
-    return 1;
+    ret = ops->is_gfn_in_unshared_region(gfn);
+    return ret;
 }
 
 /**
@@ -2803,10 +2806,10 @@ static int ram_save_complete(QEMUFile *f, void *opaque)
         flush_compressed_data(rs);
         ram_control_after_iterate(f, RAM_CONTROL_FINISH);
 
-	/* send the unencrypted regions list */
-	if (memcrypt_enabled()) {
-		ret = ram_save_unencrypt_regions_list(rs, f);
-	}
+        /* send the shared regions list */
+        if (memcrypt_enabled()) {
+            ret = ram_save_shared_regions_list(rs, f);
+        }
     }
 
     if (ret >= 0) {

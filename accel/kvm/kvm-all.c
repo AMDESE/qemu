@@ -47,6 +47,7 @@
 #include "sysemu/reset.h"
 #include "qemu/guest-random.h"
 #include "sysemu/hw_accel.h"
+#include "migration/qemu-file.h"
 #include "kvm-cpus.h"
 
 #include "hw/boards.h"
@@ -78,6 +79,13 @@ struct KVMParkedVcpu {
     int kvm_fd;
     QLIST_ENTRY(KVMParkedVcpu) node;
 };
+
+#define SHARED_REGIONS_LIST_CONT     0x1
+#define SHARED_REGIONS_LIST_END      0x2
+typedef struct shared_region {
+	unsigned long gfn_start, gfn_end;
+	QTAILQ_ENTRY(shared_region) list;
+} shared_region;
 
 struct KVMState
 {
@@ -126,6 +134,8 @@ struct KVMState
     int (*memcrypt_encrypt_data)(void *handle, uint8_t *ptr, uint64_t len);
     int (*memcrypt_save_reset_vector)(void *handle, void *flash_ptr,
                                       uint64_t flash_size, uint32_t *addr);
+
+    QTAILQ_HEAD(, shared_region) shared_region_list;
 
     uint32_t reset_cs;
     uint32_t reset_ip;
@@ -258,24 +268,62 @@ static int kvm_memcrypt_load_incoming_page(QEMUFile *f, uint8_t *ptr)
     return sev_load_incoming_page(kvm_state->memcrypt_handle, f, ptr);
 }
 
-static int kvm_memcrypt_save_outgoing_unencrypt_regions_list(QEMUFile *f)
+static int kvm_memcrypt_save_outgoing_shared_regions_list(QEMUFile *f)
 {
-    return sev_save_outgoing_unencrypt_regions_list(kvm_state->memcrypt_handle, f);
+    shared_region *pos;
+
+    QTAILQ_FOREACH(pos, &kvm_state->shared_region_list, list) {
+        qemu_put_be32(f, SHARED_REGIONS_LIST_CONT);
+        qemu_put_be32(f, pos->gfn_start);
+        qemu_put_be32(f, pos->gfn_end);
+    }
+
+    qemu_put_be32(f, SHARED_REGIONS_LIST_END);
+    return 0;
 }
 
-static int kvm_memcrypt_load_incoming_unencrypt_regions_list(QEMUFile *f)
+static int kvm_memcrypt_load_incoming_shared_regions_list(QEMUFile *f)
 {
-    return sev_load_incoming_unencrypt_regions_list(kvm_state->memcrypt_handle, f);
+    shared_region *shrd_region;
+    int status;
+
+    status = qemu_get_be32(f);
+    while (status == SHARED_REGIONS_LIST_CONT) {
+
+        shrd_region = g_malloc0(sizeof(*shrd_region));
+        if (!shrd_region)
+            return 0;
+        shrd_region->gfn_start = qemu_get_be32(f);
+        shrd_region->gfn_end = qemu_get_be32(f);
+
+        QTAILQ_INSERT_TAIL(&kvm_state->shared_region_list, shrd_region, list);
+
+        status = qemu_get_be32(f);
+    }
+    return 0;
+}
+
+bool kvm_memcrypt_is_gfn_in_unshared_region(unsigned long gfn)
+{
+    shared_region *pos;
+
+    QTAILQ_FOREACH(pos, &kvm_state->shared_region_list, list) {
+        if (gfn >= pos->gfn_start && gfn < pos->gfn_end) {
+            return false;
+	    }
+	}
+	return true;
 }
 
 static struct MachineMemoryEncryptionOps sev_memory_encryption_ops = {
     .save_setup = kvm_memcrypt_save_setup,
     .save_outgoing_page = kvm_memcrypt_save_outgoing_page,
     .load_incoming_page = kvm_memcrypt_load_incoming_page,
-    .save_outgoing_unencrypt_regions_list =
-	kvm_memcrypt_save_outgoing_unencrypt_regions_list,
-    .load_incoming_unencrypt_regions_list =
-	kvm_memcrypt_load_incoming_unencrypt_regions_list,
+    .is_gfn_in_unshared_region = kvm_memcrypt_is_gfn_in_unshared_region,
+    .save_outgoing_shared_regions_list =
+	kvm_memcrypt_save_outgoing_shared_regions_list,
+    .load_incoming_shared_regions_list =
+	kvm_memcrypt_load_incoming_shared_regions_list,
 };
 
 int kvm_memcrypt_encrypt_data(uint8_t *ptr, uint64_t len)
@@ -729,29 +777,6 @@ static void kvm_memslot_init_dirty_bitmap(KVMSlot *mem)
     mem->dirty_bmap = g_malloc0(bitmap_size);
 }
 
-/* sync unencrypted regions list */
-static int kvm_sync_unencrypt_regions_list(KVMMemoryListener *kml)
-{
-    KVMState *s = kvm_state;
-    struct kvm_page_enc_list e = {};
-    int nents;
-
-    e.pnents = &nents;
-    e.size = TARGET_PAGE_SIZE;
-    e.buffer = g_malloc0(TARGET_PAGE_SIZE);
-    if (kvm_vm_ioctl(s, KVM_GET_PAGE_ENC_LIST, &e) == -1) {
-        DPRINTF("KVM_GET_PAGE_ENC_LIST ioctl failed %d\n", errno);
-        g_free(e.buffer);
-        return 1;
-    }
-
-    cpu_physical_memory_set_unencrypt_regions_list(e.buffer, nents);
-
-    g_free(e.buffer);
-
-    return 0;
-}
-
 /**
  * kvm_physical_sync_dirty_bitmap - Sync dirty bitmap from kernel space
  *
@@ -804,11 +829,6 @@ static int kvm_physical_sync_dirty_bitmap(KVMMemoryListener *kml,
         slot_offset += slot_size;
         start_addr += slot_size;
         size -= slot_size;
-    }
-    if (kvm_memcrypt_enabled() &&
-        kvm_sync_unencrypt_regions_list(kml)) {
-        g_free(d.dirty_bitmap);
-        ret = -1;
     }
 out:
     return ret;
@@ -2164,6 +2184,7 @@ static int kvm_init(MachineState *ms)
 #ifdef KVM_CAP_SET_GUEST_DEBUG
     QTAILQ_INIT(&s->kvm_sw_breakpoints);
 #endif
+    QTAILQ_INIT(&s->shared_region_list);
     QLIST_INIT(&s->kvm_parked_vcpus);
     s->vmfd = -1;
     s->fd = qemu_open_old("/dev/kvm", O_RDWR);
@@ -2587,6 +2608,111 @@ static void kvm_eat_signals(CPUState *cpu)
     } while (sigismember(&chkset, SIG_IPI));
 }
 
+static int remove_shared_region_list(unsigned long start, unsigned long end)
+{
+     shared_region *pos;
+
+     QTAILQ_FOREACH(pos, &kvm_state->shared_region_list, list) {
+         unsigned long l, r;
+         unsigned long curr_gfn_end = pos->gfn_end;
+
+          // Find if any intersection exists ?
+          // left bound for intersecting segment
+          l = MAX(start, pos->gfn_start);
+          // right bound for intersecting segment
+          r = MIN(end, pos->gfn_end);
+          if (l <= r) {
+              if (pos->gfn_start == l && pos->gfn_end == r) {
+                  QTAILQ_REMOVE(&kvm_state->shared_region_list, pos, list);
+              } else if (l == pos->gfn_start) {
+                  pos->gfn_start = r;
+              } else if (r == pos->gfn_end) {
+                  pos->gfn_end = l;
+              } else {
+                  /* Do a de-merge -- split linked list nodes */
+                  shared_region *shrd_region;
+
+                  pos->gfn_end = l;
+                  shrd_region = g_malloc0(sizeof(*shrd_region));
+                  if (!shrd_region)
+                      return 0;
+                      shrd_region->gfn_start = r;
+                      shrd_region->gfn_end = curr_gfn_end;
+                      QTAILQ_INSERT_AFTER(&kvm_state->shared_region_list, pos, shrd_region, list);
+              }
+        }
+        if (end <= curr_gfn_end)
+            break;
+        }
+        return 0;
+}
+
+static int add_shared_region_list(unsigned long start, unsigned long end)
+{
+    shared_region *shrd_region;
+    shared_region *pos;
+
+    if (QTAILQ_EMPTY(&kvm_state->shared_region_list)) {
+        shrd_region = g_malloc0(sizeof(*shrd_region));
+        if (!shrd_region)
+            return -1;
+        shrd_region->gfn_start = start;
+        shrd_region->gfn_end = end;
+ 	QTAILQ_INSERT_TAIL(&kvm_state->shared_region_list, shrd_region, list);
+            return 0;
+        }
+
+        /*
+         * Unencrypted region list is a sorted list in ascending order
+         * of guest PA's and also merges consecutive range of guest PA's
+         */
+        QTAILQ_FOREACH(pos, &kvm_state->shared_region_list, list) {
+        /* handle duplicate overlapping regions */
+        if (start >= pos->gfn_start && end <= pos->gfn_end)
+            return 0;
+            if (pos->gfn_end < start)
+                continue;
+            /* merge consecutive guest PA(s) -- forward merge */
+            if (pos->gfn_start <= start && pos->gfn_end >= start) {
+                pos->gfn_end = end;
+                return 0;
+#if 0
+		} else if ((end + 1) == pos->gpa_start) {
+			/* merge consecutive guest PA(s) -- backward merge */
+			printf("merging consecutive GPA start@bwd = %lx, end = %lx\n",
+					start, pos->gpa_end);
+			pos->gpa_start = start;
+			return 0;
+#endif
+            }
+        break;
+        }
+        /*
+         * Add a new node
+         */
+        shrd_region = g_malloc0(sizeof(*shrd_region));
+        if (!shrd_region)
+            return -1;
+        shrd_region->gfn_start = start;
+        shrd_region->gfn_end = end;
+        if (pos)
+            QTAILQ_INSERT_BEFORE(pos, shrd_region, list);
+        else
+            QTAILQ_INSERT_TAIL(&kvm_state->shared_region_list, shrd_region, list);
+        return 1;
+}
+
+void dump_cdll(void)
+{
+    shared_region *pos;
+
+    printf("dumping srl\n");
+    QTAILQ_FOREACH(pos, &kvm_state->shared_region_list, list) {
+        printf("start = %lx, end = %lx\n", pos->gfn_start, pos->gfn_end);
+    }
+    printf("\n");
+}
+
 int kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
@@ -2699,6 +2825,23 @@ int kvm_cpu_exec(CPUState *cpu)
             break;
         case KVM_EXIT_INTERNAL_ERROR:
             ret = kvm_handle_internal_error(cpu, run);
+            break;
+	case KVM_EXIT_HYPERCALL:
+            if (run->hypercall.nr == KVM_HC_PAGE_ENC_STATUS) {
+                unsigned long enc = run->hypercall.args[2];
+                unsigned long gpa = run->hypercall.args[0];
+                unsigned long npages = run->hypercall.args[1];
+                unsigned long gfn_start = gpa >> TARGET_PAGE_BITS;
+                unsigned long gfn_end = gfn_start + npages;
+
+                if (enc) {
+                    remove_shared_region_list(gfn_start, gfn_end);
+                    //dump_cdll();
+                } else {
+                    add_shared_region_list(gfn_start, gfn_end);
+                    //dump_cdll();
+                }
+            }
             break;
         case KVM_EXIT_SYSTEM_EVENT:
             switch (run->system_event.type) {

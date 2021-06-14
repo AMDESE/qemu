@@ -122,6 +122,7 @@ static int has_xsave;
 static int has_xcrs;
 static int has_pit_state2;
 static int has_exception_payload;
+static int has_map_gpa_range;
 
 static bool has_msr_mcg_ext_ctl;
 
@@ -1462,6 +1463,9 @@ static Error *invtsc_mig_blocker;
 
 #define KVM_MAX_CPUID_ENTRIES  100
 
+#define KVM_FEATURE_SEV_LIVE_MIGRATION	16
+#define KVM_FEATURE_MIGRATION_CONTROL	17
+
 int kvm_arch_init_vcpu(CPUState *cs)
 {
     struct {
@@ -1534,6 +1538,9 @@ int kvm_arch_init_vcpu(CPUState *cs)
         c = &cpuid_data.entries[cpuid_i++];
         c->function = KVM_CPUID_FEATURES | kvm_base;
         c->eax = env->features[FEAT_KVM];
+	error_report("enabling SEV Live Migration feature\n");
+	c->eax |= (1 << KVM_FEATURE_SEV_LIVE_MIGRATION);
+	c->eax |= (1 << KVM_FEATURE_MIGRATION_CONTROL);
         c->edx = env->features[FEAT_KVM_HINTS];
     }
 
@@ -1919,6 +1926,7 @@ void kvm_arch_reset_vcpu(X86CPU *cpu)
 
         hyperv_x86_synic_reset(cpu);
     }
+
     /* enabled by default */
     env->poll_control_msr = 1;
 
@@ -2132,6 +2140,9 @@ static void register_smram_listener(Notifier *n, void *unused)
                                  &smram_address_space, 1);
 }
 
+#define KVM_HC_MAP_GPA_RANGE	12
+#define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
+
 int kvm_arch_init(MachineState *ms, KVMState *s)
 {
     uint64_t identity_base = 0xfffbc000;
@@ -2158,6 +2169,17 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
                          strerror(-ret));
             return ret;
         }
+    }
+
+    has_map_gpa_range = kvm_check_extension(s, KVM_CAP_EXIT_HYPERCALL);
+    printf("kvm has exit hypercall capability\n");
+    if (has_map_gpa_range) {
+        ret = kvm_vm_enable_cap(s, KVM_CAP_EXIT_HYPERCALL, 0, KVM_EXIT_HYPERCALL_VALID_MASK);
+        if (ret < 0) {
+            error_report("kvm: Failed to enable MAP_GPA_RANGE cap: %s", strerror(-ret));
+            return ret;
+        }
+        printf("kvm exit hypercall capability enabled\n");
     }
 
     ret = kvm_get_supported_msrs(s);
