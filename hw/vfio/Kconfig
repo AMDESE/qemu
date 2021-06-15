@@ -31,6 +31,11 @@ config VFIO_AMD_XGBE
     default y
     depends on VFIO_PLATFORM
 
+config VFIO_AMD_VIOMMU
+    bool
+    default y
+    depends on VFIO_PCI && AMD_VIOMMU
+
 config VFIO_AP
     bool
     default y
