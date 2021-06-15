@@ -134,6 +134,7 @@ config AMD_IOMMU
 config AMD_VIOMMU
     bool
     select X86_IOMMU
+    select VFIO_AMD_VIOMMU
     depends on AMD_IOMMU
 
 config VMPORT

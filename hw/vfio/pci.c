@@ -1,5 +1,6 @@
 /*
  * vfio based device assignment support
++#include "amd_viommu.h"
  *
  * Copyright Red Hat, Inc. 2012
  *
@@ -19,6 +20,7 @@
  */
 
 #include "qemu/osdep.h"
+#include CONFIG_DEVICES
 #include <linux/vfio.h>
 #include <sys/ioctl.h>
 
@@ -38,6 +40,7 @@
 #include "sysemu/kvm.h"
 #include "sysemu/runstate.h"
 #include "pci.h"
+#include "amd_viommu.h"
 #include "trace.h"
 #include "qapi/error.h"
 #include "migration/blocker.h"
@@ -2659,6 +2662,16 @@ static void vfio_populate_device(VFIOPCIDevice *vdev, Error **errp)
         return;
     }
 
+#ifdef CONFIG_VFIO_AMD_VIOMMU
+    ret = amd_viommu_attach_vfio_device(vdev);
+    if (ret) {
+        error_setg_errno(errp, -ret,
+                         "failed to attach device %s to amd-viommu",
+                         vbasedev->name);
+        return;
+    }
+#endif
+
     trace_vfio_populate_device_config(vdev->vbasedev.name,
                                       (unsigned long)reg_info->size,
                                       (unsigned long)reg_info->offset,
@@ -3285,6 +3298,10 @@ static void vfio_exitfn(PCIDevice *pdev)
     vfio_teardown_msi(vdev);
     vfio_bars_exit(vdev);
     vfio_migration_finalize(&vdev->vbasedev);
+
+#ifdef CONFIG_VFIO_AMD_VIOMMU
+    amd_viommu_detach_vfio_device(vdev);
+#endif
 }
 
 static void vfio_pci_reset(DeviceState *dev)
@@ -3400,6 +3417,7 @@ static Property vfio_pci_dev_properties[] = {
                                    qdev_prop_nv_gpudirect_clique, uint8_t),
     DEFINE_PROP_OFF_AUTO_PCIBAR("x-msix-relocation", VFIOPCIDevice, msix_relo,
                                 OFF_AUTOPCIBAR_OFF),
+    DEFINE_PROP_UINT32("parent-iommu-id", VFIOPCIDevice, parent_iommu_id, 0),
     DEFINE_PROP_LINK("iommufd", VFIOPCIDevice, vbasedev.iommufd,
                      TYPE_IOMMUFD_BACKEND, IOMMUFDBackend *),
     DEFINE_PROP_END_OF_LIST(),
