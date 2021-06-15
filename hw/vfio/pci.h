@@ -175,6 +175,7 @@ struct VFIOPCIDevice {
     bool defer_kvm_irq_routing;
     VFIODisplay *dpy;
     Notifier irqchip_change_notifier;
+    uint32_t parent_iommu_id;
 };
 
 /* Use uin32_t for vendor & device so PCI_ANY_ID expands and cannot match hw */
