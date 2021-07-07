@@ -921,6 +921,55 @@
             '*kernel-hashes': 'bool' } }
 
 ##
+# @SevSnpGuestProperties:
+#
+# Properties for sev-snp-guest objects. Most of these are direct arguments
+# for the KVM_SNP_* interfaces documented in the linux kernel source
+# under Documentation/virt/kvm/amd-memory-encryption.rst, which are in
+# turn closely coupled with the SNP_INIT/SNP_LAUNCH_* firmware commands
+# documented in the SEV-SNP Firmware ABI Specification (Rev 0.9).
+#
+# More usage information is also available in the QEMU source tree under
+# docs/amd-memory-encryption.
+#
+# @policy: the 'POLICY' parameter to the SNP_LAUNCH_START command, as
+#          defined in the SEV-SNP firmware ABI (default: 0x30000)
+#
+# @guest-visible-workarounds: 16-byte, base64-encoded blob to report
+#                             hypervisor-defined workarounds, corresponding
+#                             to the 'GOSVW' parameter of the
+#                             SNP_LAUNCH_START command defined in the
+#                             SEV-SNP firmware ABI (default: all-zero)
+#
+# @id-block: 96-byte, base64-encoded blob to provide the 'ID Block'
+#            structure for the SNP_LAUNCH_FINISH command defined in the
+#            SEV-SNP firmware ABI (default: all-zero)
+#
+# @id-auth: 4096-byte, base64-encoded blob to provide the 'ID Authentication
+#           Information Structure' for the SNP_LAUNCH_FINISH command defined
+#           in the SEV-SNP firmware ABI (default: all-zero)
+#
+# @auth-key-enabled: true if 'id-auth' blob contains the 'AUTHOR_KEY' field
+#                    defined SEV-SNP firmware ABI (default: false)
+#
+# @host-data: 32-byte, base64-encoded, user-defined blob to provide to the
+#             guest, as documented for the 'HOST_DATA' parameter of the
+#             SNP_LAUNCH_FINISH command in the SEV-SNP firmware ABI
+#             (default: all-zero)
+#
+# Since: 7.2
+##
+{ 'struct': 'SevSnpGuestProperties',
+  'base': 'SevCommonProperties',
+  'data': {
+            '*policy': 'uint64',
+            '*guest-visible-workarounds': 'str',
+            '*id-block': 'str',
+            '*id-auth': 'str',
+            '*auth-key-enabled': 'bool',
+            '*host-data': 'str' } }
+
+##
 # @ThreadContextProperties:
 #
 # Properties for thread context objects.
@@ -998,6 +1047,7 @@
     { 'name': 'secret_keyring',
       'if': 'CONFIG_SECRET_KEYRING' },
     'sev-guest',
+    'sev-snp-guest',
     'thread-context',
     's390-pv-guest',
     'throttle-group',
@@ -1068,6 +1118,7 @@
       'secret_keyring':             { 'type': 'SecretKeyringProperties',
                                       'if': 'CONFIG_SECRET_KEYRING' },
       'sev-guest':                  'SevGuestProperties',
+      'sev-snp-guest':              'SevSnpGuestProperties',
       'thread-context':             'ThreadContextProperties',
       'throttle-group':             'ThrottleGroupProperties',
       'tls-creds-anon':             'TlsCredsAnonProperties',
