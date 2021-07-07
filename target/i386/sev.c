@@ -82,12 +82,15 @@ typedef struct __attribute__((__packed__)) SevInfoBlock {
 
 #define SEV_SNP_BOOT_BLOCK_GUID "bd39c0c2-2f8e-4243-83e8-1b74cebcb7d9"
 typedef struct __attribute__((__packed__)) SevSnpBootInfoBlock {
-    /* CPUID Page address */
-    uint32_t cpuid_addr;
-    uint32_t cpuid_len;
     /* Prevalidate range address */
     uint32_t pre_validated_start;
     uint32_t pre_validated_end;
+    /* CPUID Page address */
+    uint32_t secrets_addr;
+    uint32_t secrets_len;
+    /* CPUID Page address */
+    uint32_t cpuid_addr;
+    uint32_t cpuid_len;
 } SevSnpBootInfoBlock;
 
 #define SEV_SECRET_BLOCK_GUID "4c2eb361-7d9b-4cc3-8081-127c90d3d294"
@@ -838,6 +841,8 @@ sev_guest_init(const char *id)
     uint32_t ebx;
     uint32_t host_cbitpos;
     struct sev_user_data_status status = {};
+    void *init_args = NULL;
+    struct kvm_snp_init snp_init;
 
     ret = ram_block_discard_disable(true);
     if (ret) {
@@ -896,7 +901,10 @@ sev_guest_init(const char *id)
     sev->api_minor = status.api_minor;
 
     if (sev_snp_enabled()) {
+
         cmd = KVM_SEV_SNP_INIT;
+        snp_init.flags = 0;
+        init_args = (void *)&snp_init;
     } else if (sev_es_enabled()) {
         if (!kvm_kernel_irqchip_allowed()) {
             error_report("%s: SEV-ES guests require in-kernel irqchip support",
@@ -916,7 +924,7 @@ sev_guest_init(const char *id)
     }
 
     trace_kvm_sev_init();
-    ret = sev_ioctl(sev->sev_fd, cmd, NULL, &fw_error);
+    ret = sev_ioctl(sev->sev_fd, cmd, init_args, &fw_error);
     if (ret) {
         error_report("%s: failed to initialize ret=%d fw_error=%d '%s'",
                      __func__, ret, fw_error, fw_error_to_str(fw_error));
@@ -1081,20 +1089,9 @@ detectoverlap(uint32_t start, uint32_t end,
 static int reserve_snp_boot_pages(void)
 {
     struct snp_pre_validated_range overlap;
-    SevSecretInfoBlock *secret_info;
     SevSnpBootInfoBlock *info;
     uint32_t start, end, sz;
     int ret;
-
-    /*
-     * Extract the Secrets page for the SEV-SNP guests by locating the
-     * SEV_SECRET GUID. The Secrets GUID is located on its own.
-     */
-    if (!pc_system_ovmf_table_find(SEV_SECRET_BLOCK_GUID,
-        (uint8_t **)&secret_info, NULL)) {
-        error_report("SEV-SNP: failed to find the secret block\n");
-        return 1;
-    }
 
     /*
      * Extract the SNP boot block for the SEV-SNP guests by locating the
@@ -1109,11 +1106,11 @@ static int reserve_snp_boot_pages(void)
     }
 
     /* Insert the secret page */
-    ret = sev_snp_launch_update_gpa(secret_info->secret_addr,
-                secret_info->secret_len, KVM_SEV_SNP_PAGE_TYPE_SECRETS);
+    ret = sev_snp_launch_update_gpa(info->secrets_addr, info->secrets_len,
+            KVM_SEV_SNP_PAGE_TYPE_SECRETS);
     if (ret) {
         error_report("SEV-SNP: failed to insert secret page GPA 0x%x\n",
-                secret_info->secret_addr);
+                info->secrets_addr);
         return 1;
     }
 
@@ -1131,8 +1128,8 @@ static int reserve_snp_boot_pages(void)
      * range contains the CPUID and Secret page GPA then skip it. This is because
      * SEV-SNP firmware has pre-validates those pages as part previous LAUNCH_UPDATE_DATA.
      */
-    pre_validated[0].start = secret_info->secret_addr;
-    pre_validated[0].end = secret_info->secret_addr + secret_info->secret_len;
+    pre_validated[0].start = info->secrets_addr;
+    pre_validated[0].end = info->secrets_addr + info->secrets_len;
     pre_validated[1].start = info->cpuid_addr;
     pre_validated[1].end = info->cpuid_addr + info->cpuid_len;
     start = info->pre_validated_start;

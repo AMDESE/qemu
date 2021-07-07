@@ -1591,7 +1591,7 @@ enum sev_cmd_id {
 	KVM_SEV_SEND_CANCEL,
 
 	/* SNP commands */
-	KVM_SEV_SNP_INIT = 255,
+	KVM_SEV_SNP_INIT = 256,
 	KVM_SEV_SNP_LAUNCH_START,
 	KVM_SEV_SNP_LAUNCH_UPDATE,
 	KVM_SEV_SNP_LAUNCH_FINISH,
@@ -1648,6 +1648,10 @@ struct kvm_sev_dbg {
 	__u64 src_uaddr;
 	__u64 dst_uaddr;
 	__u32 len;
+};
+
+struct kvm_snp_init {
+	__u64 flags;
 };
 
 struct kvm_sev_snp_launch_start {
