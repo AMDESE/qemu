@@ -793,6 +793,59 @@
             '*handle': 'uint32' } }
 
 ##
+# @SevSnpGuestProperties:
+#
+# Properties for sev-snp-guest objects. Most of these are direct arguments
+# for the KVM_SNP_* interfaces documented in the linux kernel source
+# under Documentation/virt/kvm/amd-memory-encryption.rst, which are in
+# turn closely coupled with the SNP_INIT/SNP_LAUNCH_* firmware commands
+# documented in the SEV-SNP Firmware ABI Specification (Rev 0.9).
+#
+# More usage information is also available in the QEMU source tree under
+# docs/amd-memory-encryption.
+#
+# @init-flags: as documented for the 'flags' parameter of the
+#              KVM_SNP_INIT KVM command (default: 0)
+#
+# @policy: the 'POLICY' parameter to the SNP_LAUNCH_START command, as
+#          defined in the SEV-SNP firmware ABI (default: 0x30000)
+#
+# @guest-visible-workarounds: 16-byte, base64-encoded blob to report
+#                             hypervisor-defined workarounds, corresponding
+#                             to the 'GOSVW' parameter of the
+#                             SNP_LAUNCH_START command defined in the
+#                             SEV-SNP firmware ABI (default: all-zero)
+#
+# @id-block: 96-byte, base64-encoded blob to provide the 'ID Block'
+#            structure for the SNP_LAUNCH_FINISH command defined in the
+#            SEV-SNP firmware ABI (default: all-zero)
+#
+# @id-auth: 4096-byte, base64-encoded blob to provide the 'ID Authentication
+#           Information Structure' for the SNP_LAUNCH_FINISH command defined
+#           in the SEV-SNP firmware ABI (default: all-zero)
+#
+# @auth-key-enabled: true if 'id-auth' blob contains the 'AUTHOR_KEY' field
+#                    defined SEV-SNP firmware ABI (default: false)
+#
+# @host-data: 32-byte, base64-encoded, user-defined blob to provide to the
+#             guest, as documented for the 'HOST_DATA' parameter of the
+#             SNP_LAUNCH_FINISH command in the SEV-SNP firmware ABI
+#             (default: all-zero)
+#
+# Since: 6.2
+##
+{ 'struct': 'SevSnpGuestProperties',
+  'base': 'SevCommonProperties',
+  'data': {
+            '*init-flags': 'uint64',
+            '*policy': 'uint64',
+            '*guest-visible-workarounds': 'str',
+            '*id-block': 'str',
+            '*id-auth': 'str',
+            '*auth-key-enabled': 'bool',
+            '*host-data': 'str' } }
+
+##
 # @ObjectType:
 #
 # Since: 6.0
@@ -834,6 +887,7 @@
     'secret',
     'secret_keyring',
     'sev-guest',
+    'sev-snp-guest',
     's390-pv-guest',
     'throttle-group',
     'tls-creds-anon',
@@ -892,6 +946,7 @@
       'secret':                     'SecretProperties',
       'secret_keyring':             'SecretKeyringProperties',
       'sev-guest':                  'SevGuestProperties',
+      'sev-snp-guest':              'SevSnpGuestProperties',
       'throttle-group':             'ThrottleGroupProperties',
       'tls-creds-anon':             'TlsCredsAnonProperties',
       'tls-creds-psk':              'TlsCredsPskProperties',
