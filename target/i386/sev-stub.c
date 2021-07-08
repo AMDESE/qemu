@@ -86,3 +86,9 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
 {
     g_assert_not_reached();
 }
+
+bool
+sev_snp_enabled(void)
+{
+    return false;
+}
