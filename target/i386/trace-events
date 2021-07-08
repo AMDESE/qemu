@@ -1,7 +1,7 @@
 # See docs/devel/tracing.rst for syntax documentation.
 
 # sev.c
-kvm_sev_init(void) ""
+kvm_sev_init(const char *type, uint64_t flags) "type %s flags 0x%" PRIx64
 kvm_memcrypt_register_region(void *addr, size_t len) "addr %p len 0x%zx"
 kvm_memcrypt_unregister_region(void *addr, size_t len) "addr %p len 0x%zx"
 kvm_sev_change_state(const char *old, const char *new) "%s -> %s"
