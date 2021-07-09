@@ -1166,7 +1166,7 @@ void x86_bios_rom_init(MachineState *ms, const char *default_firmware,
          */
         void *ptr = memory_region_get_ram_ptr(bios);
         load_image_size(filename, ptr, bios_size);
-        x86_firmware_configure(ptr, bios_size);
+        x86_firmware_configure(0x100000000ULL - bios_size, ptr, bios_size);
     } else {
         if (!isapc_ram_fw) {
             memory_region_set_readonly(bios, true);
