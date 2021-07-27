@@ -101,7 +101,6 @@ typedef struct __attribute__((__packed__)) SevInfoBlock {
 } SevInfoBlock;
 
 static SevGuestState *sev_guest;
-static Error *sev_mig_blocker;
 
 static const char *const sev_fw_errlist[] = {
     [SEV_RET_SUCCESS]                = "",
@@ -768,7 +767,6 @@ static void
 sev_launch_finish(SevGuestState *sev)
 {
     int ret, error;
-    Error *local_err = NULL;
 
     trace_kvm_sev_launch_finish();
     ret = sev_ioctl(sev->sev_fd, KVM_SEV_LAUNCH_FINISH, 0, &error);
@@ -779,16 +777,6 @@ sev_launch_finish(SevGuestState *sev)
     }
 
     sev_set_guest_state(sev, SEV_STATE_RUNNING);
-
-    /* add migration blocker */
-    error_setg(&sev_mig_blocker,
-               "SEV: Migration is not implemented");
-    ret = migrate_add_blocker(sev_mig_blocker, &local_err);
-    if (local_err) {
-        error_report_err(local_err);
-        error_free(sev_mig_blocker);
-        exit(1);
-    }
 }
 
 static int
