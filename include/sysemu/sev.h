@@ -23,6 +23,7 @@ int sev_save_setup(const char *pdh, const char *plat_cert,
                    const char *amd_cert);
 int sev_save_outgoing_page(QEMUFile *f, uint8_t *ptr,
                            uint32_t size, uint64_t *bytes_sent);
+int sev_load_incoming_page(QEMUFile *f, uint8_t *ptr);
 int sev_inject_launch_secret(const char *hdr, const char *secret,
                              uint64_t gpa, Error **errp);
 
