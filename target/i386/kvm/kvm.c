@@ -1525,6 +1525,8 @@ static int hyperv_init_vcpu(X86CPU *cpu)
 
 static Error *invtsc_mig_blocker;
 
+static Error *mig_control_mig_blocker;
+
 #define KVM_MAX_CPUID_ENTRIES  100
 
 int kvm_arch_init_vcpu(CPUState *cs)
@@ -2226,6 +2228,19 @@ static void register_smram_listener(Notifier *n, void *unused)
                                  &smram_address_space, 1);
 }
 
+static __u64 bitmap;
+struct kvm_msr_filter filter_allow = {
+    .flags = KVM_MSR_FILTER_DEFAULT_ALLOW,
+    .ranges = {
+        {
+            .flags = KVM_MSR_FILTER_READ | KVM_MSR_FILTER_WRITE,
+            .nmsrs = 1,
+            .base = MSR_KVM_MIGRATION_CONTROL,
+            .bitmap = (uint8_t *)&bitmap,
+        }
+    }
+};
+
 int kvm_arch_init(MachineState *ms, KVMState *s)
 {
     uint64_t identity_base = 0xfffbc000;
@@ -2281,6 +2296,21 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
             error_report("kvm: Failed to enable MAP_GPA_RANGE cap: %s",
                          strerror(-ret));
             return ret;
+        }
+    }
+
+    ret = kvm_check_extension(s, KVM_CAP_X86_USER_SPACE_MSR) ?
+          kvm_check_extension(s, KVM_CAP_X86_MSR_FILTER) :
+          -ENOTSUP;
+    if (ret > 0) {
+        ret = kvm_vm_enable_cap(s, KVM_CAP_X86_USER_SPACE_MSR,
+                                0, KVM_MSR_EXIT_REASON_FILTER);
+        if (ret == 0) {
+            ret = kvm_vm_ioctl(s, KVM_X86_SET_MSR_FILTER, &filter_allow);
+            if (ret < 0) {
+                error_report("kvm: KVM_X86_SET_MSR_FILTER failed : %s",
+                             strerror(-ret));
+            }
         }
     }
 
@@ -4458,6 +4488,42 @@ static int kvm_handle_exit_hypercall(X86CPU *cpu, struct kvm_run *run)
     return 0;
 }
 
+/*
+ * Currently this exit is only used by SEV guests for
+ * MSR_KVM_MIGRATION_CONTROL to indicate if the guest
+ * is ready for migration.
+ */
+static int kvm_handle_x86_msr(X86CPU *cpu, struct kvm_run *run)
+{
+    static uint64_t msr_kvm_migration_control;
+    Error *local_err = NULL;
+
+    if (run->msr.index != MSR_KVM_MIGRATION_CONTROL) {
+        run->msr.error = -EINVAL;
+        return -1;
+    }
+
+    switch (run->exit_reason) {
+    case KVM_EXIT_X86_RDMSR:
+        run->msr.error = 0;
+        run->msr.data = msr_kvm_migration_control;
+        break;
+    case KVM_EXIT_X86_WRMSR:
+        msr_kvm_migration_control = run->msr.data;
+        if (run->msr.data != KVM_MIGRATION_READY) {
+            error_setg(&mig_control_mig_blocker,
+                       "State blocked by migration control MSR");
+            migrate_add_blocker(mig_control_mig_blocker, &local_err);
+            if (local_err) {
+                error_report_err(local_err);
+                error_free(mig_control_mig_blocker);
+            }
+        }
+        run->msr.error = 0;
+    }
+    return 0;
+}
+
 int kvm_arch_insert_sw_breakpoint(CPUState *cs, struct kvm_sw_breakpoint *bp)
 {
     static const uint8_t int3 = 0xcc;
@@ -4721,6 +4787,10 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         break;
     case KVM_EXIT_HYPERCALL:
         ret = kvm_handle_exit_hypercall(cpu, run);
+        break;
+    case KVM_EXIT_X86_RDMSR:
+    case KVM_EXIT_X86_WRMSR:
+        ret = kvm_handle_x86_msr(cpu, run);
         break;
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
