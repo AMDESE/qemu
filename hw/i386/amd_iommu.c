@@ -1547,7 +1547,8 @@ static void amdvi_pci_realize(PCIDevice *pdev, Error **errp)
     pci_config_set_prog_interface(pdev->config, 0);
 
     /* reset AMDVI specific capabilities, all r/o */
-    pci_set_long(pdev->config + s->capab_offset, AMDVI_CAPAB_FEATURES);
+    pci_set_long(pdev->config + s->capab_offset,
+                 AMDVI_CAPAB_FEATURES | AMDVI_CAPAB_FLAG_NPCACHE );
     pci_set_long(pdev->config + s->capab_offset + AMDVI_CAPAB_BAR_LOW,
                  AMDVI_BASE_ADDR & ~(0xffff0000));
     pci_set_long(pdev->config + s->capab_offset + AMDVI_CAPAB_BAR_HIGH,
