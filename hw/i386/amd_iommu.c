@@ -1522,7 +1522,8 @@ static void amdvi_init(AMDVIState *s)
     pci_config_set_class(s->pci.dev.config, 0x0806);
 
     /* reset AMDVI specific capabilities, all r/o */
-    pci_set_long(s->pci.dev.config + s->capab_offset, AMDVI_CAPAB_FEATURES);
+    pci_set_long(s->pci.dev.config + s->capab_offset,
+                 AMDVI_CAPAB_FEATURES | AMDVI_CAPAB_FLAG_NPCACHE );
     pci_set_long(s->pci.dev.config + s->capab_offset + AMDVI_CAPAB_BAR_LOW,
                  s->mmio.addr & ~(0xffff0000));
     pci_set_long(s->pci.dev.config + s->capab_offset + AMDVI_CAPAB_BAR_HIGH,
