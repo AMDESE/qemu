@@ -1282,6 +1282,98 @@ sev_launch_finish(SevGuestState *sev_guest)
     migrate_add_blocker(sev_mig_blocker, &error_fatal);
 }
 
+static int
+snp_metadata_desc_to_page_type(int desc_type)
+{
+    switch(desc_type) {
+    /* Add the umeasured prevalidated pages as a zero page */
+    case SEV_DESC_TYPE_SNP_SEC_MEM: return KVM_SEV_SNP_PAGE_TYPE_ZERO;
+    case SEV_DESC_TYPE_SNP_SECRETS: return KVM_SEV_SNP_PAGE_TYPE_SECRETS;
+    case SEV_DESC_TYPE_CPUID: return KVM_SEV_SNP_PAGE_TYPE_CPUID;
+    default: return -1;
+    }
+}
+
+static void
+snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
+                            OvmfSevMetadata *metadata)
+{
+    OvmfSevMetadataDesc *desc;
+    int type, ret, i;
+    void *hva;
+    MemoryRegion *mr = NULL;
+
+    for (i = 0; i < metadata->num_desc; i++) {
+        desc = &metadata->descs[i];
+
+        type = snp_metadata_desc_to_page_type(desc->type);
+        if (type < 0) {
+            error_report("%s: Invalid memory type '%d'\n", __func__, desc->type);
+            exit(1);
+        }
+
+        hva = gpa2hva(&mr, desc->base, desc->len, NULL);
+        if (!hva) {
+            error_report("%s: Failed to get HVA for GPA 0x%x sz 0x%x\n",
+                         __func__, desc->base, desc->len);
+            exit(1);
+        }
+
+        ret = sev_snp_launch_update(sev_snp, desc->base, hva, desc->len, type);
+        if (ret) {
+            error_report("%s: Failed to add metadata page gpa 0x%x+%x type %d\n",
+                         __func__, desc->base, desc->len, desc->type);
+            exit(1);
+        }
+    }
+}
+
+static void
+sev_snp_launch_finish(SevSnpGuestState *sev_snp)
+{
+    int ret, error;
+    Error *local_err = NULL;
+    OvmfSevMetadata *metadata;
+    struct kvm_sev_snp_launch_finish *finish = &sev_snp->kvm_finish_conf;
+
+    /*
+     * To boot the SNP guest, the hypervisor is required to populate the CPUID
+     * and Secrets page before finalizing the launch flow. The location of
+     * the secrets and CPUID page is available through the OVMF metadata GUID.
+     */
+    metadata = pc_system_get_ovmf_sev_metadata_ptr();
+    if (metadata == NULL) {
+        error_report("%s: Failed to locate SEV metadata header\n", __func__);
+        exit(1);
+    }
+
+    /* Populate all the metadata pages */
+    snp_populate_metadata_pages(sev_snp, metadata);
+
+    trace_kvm_sev_snp_launch_finish(sev_snp->id_block, sev_snp->id_auth,
+                                    sev_snp->host_data);
+    ret = sev_ioctl(SEV_COMMON(sev_snp)->sev_fd, KVM_SEV_SNP_LAUNCH_FINISH,
+                    finish, &error);
+    if (ret) {
+        error_report("%s: SNP_LAUNCH_FINISH ret=%d fw_error=%d '%s'",
+                     __func__, ret, error, fw_error_to_str(error));
+        exit(1);
+    }
+
+    sev_set_guest_state(SEV_COMMON(sev_snp), SEV_STATE_RUNNING);
+
+    /* add migration blocker */
+    error_setg(&sev_mig_blocker,
+               "SEV-SNP: Migration is not implemented");
+    ret = migrate_add_blocker(sev_mig_blocker, &local_err);
+    if (local_err) {
+        error_report_err(local_err);
+        error_free(sev_mig_blocker);
+        exit(1);
+    }
+}
+
+
 static void
 sev_vm_state_change(void *opaque, bool running, RunState state)
 {
@@ -1289,7 +1381,11 @@ sev_vm_state_change(void *opaque, bool running, RunState state)
 
     if (running) {
         if (!sev_check_state(sev_common, SEV_STATE_RUNNING)) {
-            sev_launch_finish(SEV_GUEST(sev_common));
+            if (sev_snp_enabled()) {
+                sev_snp_launch_finish(SEV_SNP_GUEST(sev_common));
+            } else {
+                sev_launch_finish(SEV_GUEST(sev_common));
+            }
         }
     }
 }
@@ -1403,7 +1499,17 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
     }
 
     ram_block_notifier_add(&sev_ram_notifier);
-    qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
+
+    /*
+     * The machine done notify event is used by the SEV guest to get the
+     * measurement of the encrypted images. When SEV-SNP is enabled, the
+     * measurement is part of the attestation. So skip registering the
+     * notifier.
+     */
+    if (!sev_snp_enabled()) {
+        qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
+    }
+
     qemu_add_vm_change_state_handler(sev_vm_state_change, sev_common);
 
     cgs->ready = true;
