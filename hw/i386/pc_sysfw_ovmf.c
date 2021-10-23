@@ -35,6 +35,31 @@ static const int bytes_after_table_footer = 32;
 static bool ovmf_flash_parsed;
 static uint8_t *ovmf_table;
 static int ovmf_table_len;
+static OvmfSevMetadata *ovmf_sev_metadata_table;
+
+#define OVMF_SEV_META_DATA_GUID "dc886566-984a-4798-A75e-5585a7bf67cc"
+typedef struct __attribute__((__packed__)) OvmfSevMetadataOffset {
+    uint32_t offset;
+} OvmfSevMetadataOffset;
+
+static void pc_system_parse_sev_metadata(uint8_t *flash_ptr, size_t flash_size)
+{
+    OvmfSevMetadata     *metadata;
+    OvmfSevMetadataOffset  *data;
+
+    if (!pc_system_ovmf_table_find(OVMF_SEV_META_DATA_GUID, (uint8_t **)&data,
+                                   NULL)) {
+        return;
+    }
+
+    metadata = (OvmfSevMetadata *)(flash_ptr + flash_size - data->offset);
+    if (memcmp(metadata->signature, "ASEV", 4) != 0) {
+        return;
+    }
+
+    ovmf_sev_metadata_table = g_malloc(metadata->len);
+    memcpy(ovmf_sev_metadata_table, metadata, metadata->len);
+}
 
 void pc_system_parse_ovmf_flash(uint8_t *flash_ptr, size_t flash_size)
 {
@@ -90,6 +115,9 @@ void pc_system_parse_ovmf_flash(uint8_t *flash_ptr, size_t flash_size)
      */
     memcpy(ovmf_table, ptr - tot_len, tot_len);
     ovmf_table += tot_len;
+
+    /* Copy the SEV metadata table (if exist) */
+    pc_system_parse_sev_metadata(flash_ptr, flash_size);
 }
 
 /**
@@ -158,4 +186,9 @@ bool pc_system_ovmf_table_find(const char *entry, uint8_t **data,
         }
     }
     return false;
+}
+
+OvmfSevMetadata *pc_system_get_ovmf_sev_metadata_ptr(void)
+{
+    return ovmf_sev_metadata_table;
 }
