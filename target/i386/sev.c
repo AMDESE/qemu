@@ -146,6 +146,12 @@ static const char *const sev_fw_errlist[] = {
     [SEV_RET_INVALID_PARAM]          = "Invalid parameter",
     [SEV_RET_RESOURCE_LIMIT]         = "Required firmware resource depleted",
     [SEV_RET_SECURE_DATA_INVALID]    = "Part-specific integrity check failure",
+    [SEV_RET_INVALID_PAGE_SIZE]      = "RMP page size is incorrect",
+    [SEV_RET_INVALID_PAGE_STATE]     = "RMP page state is incorrect",
+    [SEV_RET_INVALID_MDATA_ENTRY]    = "Metadata entry is invalid",
+    [SEV_RET_INVALID_PAGE_OWNER]     = "Page ownership is incorrect",
+    [SEV_RET_AEAD_OFLOW]             = "AEAD algorithum would have overflowed",
+    [SEV_RET_RMP_INIT_REQUIRED]      = "RMP must be initialized",
 };
 
 #define SEV_FW_MAX_ERROR      ARRAY_SIZE(sev_fw_errlist)
