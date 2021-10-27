@@ -1987,6 +1987,11 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
                          "has no hashes table GUID");
         return false;
     }
+
+    if (sev_snp_enabled()) {
+        return false;
+    }
+
     area = (SevHashTableDescriptor *)data;
     if (!area->base || area->size < sizeof(PaddedSevHashTable)) {
         error_setg(errp, "SEV: guest firmware hashes table area is invalid "
