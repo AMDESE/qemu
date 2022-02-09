@@ -1365,11 +1365,14 @@ sev_snp_cpuid_info_fill(SnpCpuidInfo *snp_cpuid_info,
         /*
          * Guest kernels will calculate EBX themselves using the 0xD
          * subfunctions corresponding to the individual XSAVE areas, so only
-         * encode the base XSAVE size in the initial leaves.
+         * encode the base XSAVE size in the initial leaves, corresponding
+         * to the initial XCR0=1 state.
          */
         if (snp_cpuid_entry->eax_in == 0xD &&
             (snp_cpuid_entry->ecx_in == 0x0 || snp_cpuid_entry->ecx_in == 0x1)) {
             snp_cpuid_entry->ebx = 0x240;
+            snp_cpuid_entry->xcr0_in = 1;
+            snp_cpuid_entry->xss_in = 0;
         }
     }
 
