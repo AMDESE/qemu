@@ -66,11 +66,11 @@ bool sev_es_enabled(void)
     return false;
 }
 
-void sev_es_set_reset_vector(CPUState *cpu)
+void sev_es_set_reset_state(CPUState *cpu)
 {
 }
 
-int sev_es_save_reset_vector(void *flash_ptr, uint64_t flash_size)
+int sev_es_save_reset_state(void *flash_ptr, uint64_t flash_size)
 {
     abort();
 }
