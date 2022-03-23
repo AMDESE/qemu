@@ -326,7 +326,7 @@ struct AMDVIState {
     bool evtlog_enabled;         /* event log enabled            */
     bool excl_enabled;
 
-    hwaddr devtab;               /* base address device table    */
+    hwaddr devtab_base;          /* device table base address    */
     size_t devtab_len;           /* device table length          */
 
     hwaddr cmdbuf;               /* command buffer base address  */
