@@ -563,7 +563,7 @@ static inline void amdvi_handle_devtab_write(AMDVIState *s)
 
 {
     uint64_t val = amdvi_readq(s, AMDVI_MMIO_DEVICE_TABLE);
-    s->devtab = (val & AMDVI_MMIO_DEVTAB_BASE_MASK);
+    s->devtab_base = (val & AMDVI_MMIO_DEVTAB_BASE_MASK);
 
     /* set device table length */
     s->devtab_len = ((val & AMDVI_MMIO_DEVTAB_SIZE_MASK) + 1 *
@@ -752,7 +752,7 @@ static bool amdvi_validate_dte(AMDVIState *s, uint16_t devid,
         || (dte[1] & AMDVI_DTE_MIDDLE_QUAD_RESERVED)
         || (dte[2] & AMDVI_DTE_UPPER_QUAD_RESERVED) || dte[3]) {
         amdvi_log_illegaldevtab_error(s, devid,
-                                      s->devtab +
+                                      s->devtab_base +
                                       devid * AMDVI_DEVTAB_ENTRY_SIZE, 0);
         return false;
     }
@@ -765,11 +765,11 @@ static bool amdvi_get_dte(AMDVIState *s, int devid, uint64_t *entry)
 {
     uint32_t offset = devid * AMDVI_DEVTAB_ENTRY_SIZE;
 
-    if (dma_memory_read(&address_space_memory, s->devtab + offset, entry,
+    if (dma_memory_read(&address_space_memory, s->devtab_base + offset, entry,
                         AMDVI_DEVTAB_ENTRY_SIZE, MEMTXATTRS_UNSPECIFIED)) {
-        trace_amdvi_dte_get_fail(s->devtab, offset);
+        trace_amdvi_dte_get_fail(s->devtab_base, offset);
         /* log error accessing dte */
-        amdvi_log_devtab_error(s, devid, s->devtab + offset, 0);
+        amdvi_log_devtab_error(s, devid, s->devtab_base + offset, 0);
         return false;
     }
 
