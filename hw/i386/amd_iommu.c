@@ -56,16 +56,6 @@ const char *amdvi_mmio_high[] = {
     "UNHANDLED"
 };
 
-struct AMDVIAddressSpace {
-    uint8_t bus_num;            /* bus number                           */
-    uint8_t devfn;              /* device function                      */
-    AMDVIState *iommu_state;    /* AMDVI - one per machine              */
-    MemoryRegion root;          /* AMDVI Root memory map region */
-    IOMMUMemoryRegion iommu;    /* Device's address translation region  */
-    MemoryRegion iommu_ir;      /* Device's interrupt remapping region  */
-    AddressSpace as;            /* device's corresponding address space */
-};
-
 /* AMDVI cache entry */
 typedef struct AMDVIIOTLBEntry {
     uint16_t domid;             /* assigned domain id  */
