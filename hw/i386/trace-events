@@ -129,3 +129,8 @@ x86_pic_interrupt(int irqn, int level) "PIC interrupt #%d level:%d"
 # port92.c
 port92_read(uint8_t val) "port92: read 0x%02x"
 port92_write(uint8_t val) "port92: write 0x%02x"
+
+# amd_viommu.h
+amd_viommu_dte(uint64_t offset_hi, uint64_t offset_lo, uint32_t size, uint64_t val, uint32_t devid, uint32_t domid) "offset_lo=%#lx, offset_hi=%#lx, size=%#x, val=%#lx, devid=%#x, domid=%#x"
+amd_viommu_gcr3(uint64_t gcr3tbl, uint64_t gcr3tbl_va, uint64_t gcr3_0, uint64_t gcr3_0_va, uint16_t flags) "gcr3tbl=%#lx, gcr3tbl_va=%#lx, gcr3[0]=%#lx, gcr3[0]_va=%#lx, flags=%#x"
+amd_viommu_devtab_mmio(uint64_t val, uint64_t base, uint64_t len, uint16_t bus, uint16_t devfn) "val=%#lx, base=%#lx, len=%#lx, bus=%#x, devfn=%#x"

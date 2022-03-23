@@ -2384,6 +2384,14 @@ void build_ivrs(GArray *table_data, BIOSLinker *linker, const char *oem_id,
                   (2UL << 10) | /* HATSup */
                   (2UL << 12) ; /* GATSup*/
             efr2 = 0;
+        } else if (object_dynamic_cast(OBJECT(iommu), TYPE_AMD_VIOMMU_DEVICE)) {
+            s = AMD_VIOMMU_DEVICE(iommu);
+            efr = (1UL << 1) |  /* PPRSup */
+                  (1UL << 4) |  /* GTSup */
+                  (2UL << 10) | /* HATSup */
+                  (2UL << 12) | /* GATSup*/
+                  (1UL << 48);  /* GIOSup*/
+            efr2 = 0;
         }
         build_amd_iommu(table_data, s, efr, efr2);
     }
@@ -2526,7 +2534,8 @@ void acpi_build(AcpiBuildTables *tables, MachineState *machine)
         build_mcfg(tables_blob, tables->linker, &mcfg, x86ms->oem_id,
                    x86ms->oem_table_id);
     }
-    if (object_dynamic_cast(OBJECT(iommu), TYPE_AMD_IOMMU_DEVICE)) {
+    if (object_dynamic_cast(OBJECT(iommu), TYPE_AMD_IOMMU_DEVICE) ||
+        object_dynamic_cast(OBJECT(iommu), TYPE_AMD_VIOMMU_DEVICE)) {
         acpi_add_table(table_offsets, tables_blob);
         build_ivrs(tables_blob, tables->linker, x86ms->oem_id,
                    x86ms->oem_table_id);

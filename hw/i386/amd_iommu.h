@@ -22,6 +22,7 @@
 #define AMD_IOMMU_H
 
 #include "hw/pci/pci.h"
+#include "hw/vfio/pci.h"
 #include "hw/i386/x86-iommu.h"
 #include "qom/object.h"
 
@@ -65,6 +66,7 @@
 #define AMDVI_MMIO_PPR_TAIL           0x2038
 
 #define AMDVI_MMIO_SIZE               0x4000
+#define AMD_VIOMMU_MMIO_SIZE          0x4000
 
 #define AMDVI_MMIO_DEVTAB_SIZE_MASK   ((1ULL << 12) - 1)
 #define AMDVI_MMIO_DEVTAB_BASE_MASK   (((1ULL << 52) - 1) & ~ \
@@ -329,6 +331,11 @@ struct AMDVIState {
 
     hwaddr devtab_base;          /* device table base address    */
     size_t devtab_len;           /* device table length          */
+    MemoryRegion devtab_mr;      /* device table region          */
+
+    /* TODO: Hardcode for now */
+    uint8_t devtab[8192];
+    int dev_domid[256];
 
     hwaddr cmdbuf;               /* command buffer base address  */
     uint64_t cmdbuf_len;         /* command buffer length        */
@@ -367,7 +374,22 @@ struct AMDVIState {
 
     /* Interrupt remapping */
     bool ga_enabled;
+
+    uint32_t gid;
+
+    /* /dev/iommu interface */
+    IOMMUFDBackend *iommufd;
 };
+
+#define TYPE_AMD_VIOMMU_DEVICE "amd-viommu"
+#define AMD_VIOMMU_DEVICE(obj)\
+    OBJECT_CHECK(AMDVIState, (obj), TYPE_AMD_VIOMMU_DEVICE)
+
+#define TYPE_AMD_VIOMMU_PCI "AMD-VIOMMU-PCI"
+
+#define TYPE_AMD_VIOMMU_MEMORY_REGION "amd-viommu-memory-region"
+
+typedef struct AMDVIAddressSpace AMDVIAddressSpace;
 
 struct AMDVIAddressSpace {
     uint8_t bus_num;            /* bus number                           */

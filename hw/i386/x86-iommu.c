@@ -21,6 +21,7 @@
 #include "hw/sysbus.h"
 #include "hw/i386/x86-iommu.h"
 #include "hw/qdev-properties.h"
+#include "hw/qdev-properties-system.h"
 #include "hw/i386/pc.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
@@ -134,6 +135,7 @@ static Property x86_iommu_properties[] = {
                             intr_supported, ON_OFF_AUTO_AUTO),
     DEFINE_PROP_BOOL("device-iotlb", X86IOMMUState, dt_supported, false),
     DEFINE_PROP_BOOL("pt", X86IOMMUState, pt_supported, true),
+    DEFINE_PROP_PCI_HOST_DEVADDR("host", X86IOMMUState, host),
     DEFINE_PROP_UINT32("iommu-id", X86IOMMUState, id, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
