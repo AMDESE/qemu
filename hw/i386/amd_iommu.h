@@ -22,6 +22,7 @@
 #define AMD_IOMMU_H
 
 #include "hw/pci/pci.h"
+#include "hw/vfio/pci.h"
 #include "hw/i386/x86-iommu.h"
 #include "qom/object.h"
 
@@ -65,6 +66,7 @@
 #define AMDVI_MMIO_PPR_TAIL           0x2038
 
 #define AMDVI_MMIO_SIZE               0x4000
+#define AMD_VIOMMU_MMIO_SIZE          0x4000
 
 #define AMDVI_MMIO_DEVTAB_SIZE_MASK   ((1ULL << 12) - 1)
 #define AMDVI_MMIO_DEVTAB_BASE_MASK   (((1ULL << 52) - 1) & ~ \
@@ -248,6 +250,9 @@
 #define AMDVI_DEV_LINT0_PASS_MASK       (1ULL << 62)
 #define AMDVI_DEV_LINT1_PASS_MASK       (1ULL << 63)
 
+#define AMDVI_DEVTAB_SIZE               8192
+#define AMDVI_DEVID_MAX                 0xFFFF
+
 /* Interrupt remapping table fields (Guest VAPIC not enabled) */
 union irte {
     uint32_t val;
@@ -312,6 +317,23 @@ struct AMDVIPCIState {
     uint32_t capab_offset;       /* capability offset pointer    */
 };
 
+struct AMDVIHwpt {
+    uint32_t hwpt_id;
+    uint32_t parent_ioas_id; /* ioas_id or hwpt_id */
+    uint32_t users;
+};
+
+struct AMDIOMMUFDDevice {
+    PCIBus *bus;
+    uint8_t devfn;
+    struct AMDVIHwpt v1_hwpt;
+    IOMMUFDDevice *idev;
+    AMDVIState *iommu_state;
+    QLIST_ENTRY(AMDIOMMUFDDevice) next;
+};
+
+typedef struct AMDIOMMUFDDevice AMDIOMMUFDDevice;
+
 struct AMDVIState {
     X86IOMMUState iommu;        /* IOMMU bus device             */
     AMDVIPCIState pci;          /* IOMMU PCI device             */
@@ -328,6 +350,10 @@ struct AMDVIState {
 
     hwaddr devtab_base;          /* device table base address    */
     size_t devtab_len;           /* device table length          */
+    MemoryRegion devtab_mr;      /* device table region          */
+
+    uint8_t devtab[AMDVI_DEVTAB_SIZE];
+    int dev_domid[AMDVI_DEVID_MAX];
 
     hwaddr cmdbuf;               /* command buffer base address  */
     uint64_t cmdbuf_len;         /* command buffer length        */
@@ -366,7 +392,28 @@ struct AMDVIState {
 
     /* Interrupt remapping */
     bool ga_enabled;
+
+    uint32_t gid;
+
+    /* AMD IOMMU HW info */
+    struct iommu_hw_info_amd hwinfo;
+
+    /* /dev/iommu interface */
+    IOMMUFDBackend *iommufd;
+    struct IOMMUFDDevice *idev;
+    QLIST_HEAD(, AMDIOMMUFDDevice) amd_idev_list;
+    GHashTable *amd_iommufd_dev; /* AMDIOMMUFDDevice */
 };
+
+#define TYPE_AMD_VIOMMU_DEVICE "amd-viommu"
+#define AMD_VIOMMU_DEVICE(obj)\
+    OBJECT_CHECK(AMDVIState, (obj), TYPE_AMD_VIOMMU_DEVICE)
+
+#define TYPE_AMD_VIOMMU_PCI "AMD-VIOMMU-PCI"
+
+#define TYPE_AMD_VIOMMU_MEMORY_REGION "amd-viommu-memory-region"
+
+typedef struct AMDVIAddressSpace AMDVIAddressSpace;
 
 struct AMDVIAddressSpace {
     uint8_t bus_num;            /* bus number                           */
