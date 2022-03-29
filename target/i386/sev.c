@@ -1818,6 +1818,8 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     uint8_t initrd_hash[HASH_SIZE];
     uint8_t kernel_hash[HASH_SIZE];
     uint8_t *hashp;
+    uint8_t *full_page = NULL;
+    int ret;
     size_t hash_len = HASH_SIZE;
     int aligned_len;
 
@@ -1826,11 +1828,24 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
         return false;
     }
 
-    if (sev_snp_enabled()) {
-        return false;
-    }
-
     area = (SevHashTableDescriptor *)data;
+
+    /*
+     * TODO: this is an RFC patch on top of an old tree that doesn't support
+     * the kernel-hashes=on flag.
+     *
+     * But, when kernel-hashes=off and SNP is active, we need to mark the
+     * pre-validate the hashes page as a zero page:
+     *
+     * if (kernel_hashes flag is off) {
+     *     uint32_t gpa = area->base & TARGET_PAGE_MASK
+     *     void *hva = gpa2hva(&mr, gpa, TARGET_PAGE_SIZE, NULL);
+     *     if (!hva) { ... }
+     *     ret = sev_snp_launch_update(sev_snp, gpa, hva, TARGET_PAGE_SIZE,
+     *                                 KVM_SEV_SNP_PAGE_TYPE_ZERO);
+     *     return ret == 0;
+     * }
+     */
 
     /*
      * Calculate hash of kernel command-line with the terminating null byte. If
@@ -1871,7 +1886,13 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
      * Populate the hashes table in the guest's memory at the OVMF-designated
      * area for the SEV hashes table
      */
-    ht = qemu_map_ram_ptr(NULL, area->base);
+    if (sev_snp_enabled()) {
+        full_page = qemu_map_ram_ptr(NULL, area->base & TARGET_PAGE_MASK);
+        memset(full_page, 0, TARGET_PAGE_SIZE);
+        ht = (SevHashTable *)(full_page + (area->base & ~TARGET_PAGE_MASK));
+    } else {
+        ht = (SevHashTable *)qemu_map_ram_ptr(NULL, area->base);
+    }
 
     ht->guid = sev_hash_table_header_guid;
     ht->len = sizeof(*ht);
@@ -1895,11 +1916,14 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
         memset(ht->padding, 0, aligned_len - ht->len);
     }
 
-    if (sev_encrypt_flash(area->base, (uint8_t *)ht, aligned_len, errp) < 0) {
-        return false;
+    if (sev_snp_enabled()) {
+        ret = sev_encrypt_flash(area->base & TARGET_PAGE_MASK, full_page,
+                                TARGET_PAGE_SIZE, errp);
+    } else {
+        ret = sev_encrypt_flash(area->base, (uint8_t *)ht, aligned_len, errp);
     }
 
-    return true;
+    return ret >= 0;
 }
 
 static void
