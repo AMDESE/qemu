@@ -43,6 +43,7 @@
 #include "migration/blocker.h"
 #include "migration/qemu-file.h"
 #include "linux/iommufd.h"
+#include "sysemu/iommufd.h"
 
 #define TYPE_VFIO_PCI_NOHOTPLUG "vfio-pci-nohotplug"
 
@@ -3616,6 +3617,10 @@ static Property vfio_pci_dev_properties[] = {
      * DEFINE_PROP_STRING("vfiofd", VFIOPCIDevice, vfiofd_name),
      * DEFINE_PROP_STRING("vfiogroupfd, VFIOPCIDevice, vfiogroupfd_name),
      */
+#ifdef CONFIG_IOMMUFD
+    DEFINE_PROP_LINK("iommufd", VFIOPCIDevice, vbasedev.iommufd,
+                     TYPE_IOMMUFD_BACKEND, IOMMUFDBackend *),
+#endif
     DEFINE_PROP_END_OF_LIST(),
 };
 
