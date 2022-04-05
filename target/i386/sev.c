@@ -133,6 +133,11 @@ typedef struct QEMU_PACKED SevHashTable {
     uint8_t padding[];
 } SevHashTable;
 
+#define VMPL0 0
+#define VMPL1 1
+#define VMPL2 2
+#define VMPL3 3
+
 static Error *sev_mig_blocker;
 
 static const char *const sev_fw_errlist[] = {
@@ -1048,7 +1053,7 @@ snp_page_type_to_str(int type)
 
 static int
 sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, hwaddr gpa, uint8_t *addr,
-                      uint64_t len, int type)
+                      uint64_t len, int type, uint8_t vmpl)
 {
     int ret, fw_error;
     struct kvm_sev_snp_launch_update update = {0};
@@ -1063,6 +1068,14 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, hwaddr gpa, uint8_t *addr
     update.start_gfn = gpa >> TARGET_PAGE_BITS;
     update.len = len;
     update.page_type = type;
+    if (vmpl == VMPL1) {
+        update.vmpl1_perms = 0xf;
+    } else if (vmpl == VMPL2) {
+        update.vmpl2_perms = 0xf;
+    } else if (vmpl == VMPL3) {
+        update.vmpl3_perms = 0xf;
+    }
+
     trace_kvm_sev_snp_launch_update(addr, gpa, len, snp_page_type_to_str(type));
     ret = sev_ioctl(SEV_COMMON(sev_snp_guest)->sev_fd,
                     KVM_SEV_SNP_LAUNCH_UPDATE,
@@ -1289,7 +1302,7 @@ sev_snp_cpuid_report_mismatches(SnpCpuidInfo *old,
 
 static int
 snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint32_t cpuid_addr,
-                            void *hva, uint32_t cpuid_len)
+                        void *hva, uint32_t cpuid_len, uint8_t vmpl)
 {
     KvmCpuidInfo kvm_cpuid_info = {0};
     SnpCpuidInfo snp_cpuid_info;
@@ -1320,7 +1333,7 @@ snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint32_t cpuid_addr,
     memcpy(hva, &snp_cpuid_info, sizeof(snp_cpuid_info));
 
     ret = sev_snp_launch_update(sev_snp, cpuid_addr, hva, cpuid_len,
-                                    KVM_SEV_SNP_PAGE_TYPE_CPUID);
+                                KVM_SEV_SNP_PAGE_TYPE_CPUID, vmpl);
     if (ret) {
         sev_snp_cpuid_report_mismatches(&snp_cpuid_info, hva);
         error_report("SEV-SNP: failed update CPUID page");
@@ -1368,10 +1381,11 @@ snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
         }
 
         if (type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
-            ret = snp_launch_update_cpuid(sev_snp, desc->base, hva, desc->len);
+            ret = snp_launch_update_cpuid(sev_snp, desc->base, hva, desc->len,
+                                          VMPL0);
         } else {
             ret = sev_snp_launch_update(sev_snp, desc->base, hva, desc->len,
-                                        type);
+                                        type, VMPL0);
         }
 
         if (ret) {
@@ -1591,7 +1605,8 @@ sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
 
         if (sev_snp_enabled()) {
             ret = sev_snp_launch_update(SEV_SNP_GUEST(sev_common), gpa, ptr,
-                                        len, KVM_SEV_SNP_PAGE_TYPE_NORMAL);
+                                        len, KVM_SEV_SNP_PAGE_TYPE_NORMAL,
+                                        VMPL0);
         } else {
             ret = sev_launch_update_data(SEV_GUEST(sev_common), ptr, len);
         }
