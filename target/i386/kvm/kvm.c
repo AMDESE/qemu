@@ -141,6 +141,7 @@ static int has_pit_state2;
 static int has_sregs2;
 static int has_exception_payload;
 static int has_triple_fault_event;
+static int has_map_gpa_range;
 
 static bool has_msr_mcg_ext_ctl;
 
@@ -2233,6 +2234,13 @@ int kvm_arch_init_vcpu(CPUState *cs)
         c->eax = MAX(c->eax, KVM_CPUID_SIGNATURE | 0x10);
     }
 
+    if (kvm_has_restricted_memory() && !sev_snp_enabled() && has_map_gpa_range) {
+        c = cpuid_find_entry(&cpuid_data.cpuid,
+                             KVM_CPUID_FEATURES | kvm_base, 0);
+        c->eax |= (1 << KVM_FEATURE_MIGRATION_CONTROL);
+        c->eax |= (1 << KVM_FEATURE_HC_MAP_GPA_RANGE);
+    }
+
     cpuid_data.cpuid.nent = cpuid_i;
 
     cpuid_data.cpuid.padding = 0;
@@ -2552,6 +2560,8 @@ static void register_smram_listener(Notifier *n, void *unused)
                                  &smram_address_space, 1, "kvm-smram");
 }
 
+#define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
+
 int kvm_arch_init(MachineState *ms, KVMState *s)
 {
     uint64_t identity_base = 0xfffbc000;
@@ -2626,6 +2636,17 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
         error_report("kvm: Xen support not enabled in qemu");
         return -ENOTSUP;
 #endif
+    }
+
+    has_map_gpa_range = kvm_check_extension(s, KVM_CAP_EXIT_HYPERCALL);
+    if (has_map_gpa_range && kvm_has_restricted_memory() && !sev_snp_enabled()) {
+        ret = kvm_vm_enable_cap(s, KVM_CAP_EXIT_HYPERCALL, 0,
+                                KVM_EXIT_HYPERCALL_VALID_MASK);
+        if (ret < 0) {
+            error_report("kvm: Failed to enable MAP_GPA_RANGE cap: %s",
+                         strerror(-ret));
+            return ret;
+        }
     }
 
     ret = kvm_get_supported_msrs(s);
@@ -5104,6 +5125,22 @@ static int kvm_handle_tpr_access(X86CPU *cpu)
     return 1;
 }
 
+static int kvm_handle_exit_hypercall(X86CPU *cpu, struct kvm_run *run)
+{
+    /*
+     * Currently this exit is only used by SEV guests for
+     * guest page encryption status tracking.
+     */
+    if (run->hypercall.nr == KVM_HC_MAP_GPA_RANGE) {
+        unsigned long enc = run->hypercall.args[2];
+        unsigned long gpa = run->hypercall.args[0];
+        unsigned long npages = run->hypercall.args[1];
+
+        kvm_convert_memory(gpa, npages * 4096, enc);
+    }
+    return 0;
+}
+
 int kvm_arch_insert_sw_breakpoint(CPUState *cs, struct kvm_sw_breakpoint *bp)
 {
     static const uint8_t int3 = 0xcc;
@@ -5529,6 +5566,9 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         ret = kvm_xen_handle_exit(cpu, &run->xen);
         break;
 #endif
+    case KVM_EXIT_HYPERCALL:
+        ret = kvm_handle_exit_hypercall(cpu, run);
+        break;
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
         ret = -1;

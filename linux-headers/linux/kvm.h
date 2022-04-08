@@ -354,6 +354,7 @@ struct kvm_run {
 		} mmio;
 		/* KVM_EXIT_HYPERCALL */
 		struct {
+#define KVM_HC_MAP_GPA_RANGE              12
 			__u64 nr;
 			__u64 args[6];
 			__u64 ret;
