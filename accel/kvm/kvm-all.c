@@ -2840,7 +2840,7 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
     return r;
 }
 
-int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
+int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private, bool preserve)
 {
     MemoryRegionSection section;
     void *addr;
@@ -2866,12 +2866,18 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
          * operation on underlying file descriptor is only for releasing
          * unnecessary pages.
          */
-        (void)ram_block_convert_range(rb, offset, size, shared_to_private);
+        if (!preserve) {
+            ret = ram_block_convert_range(rb, offset, size, shared_to_private, preserve);
+            if (ret) {
+                goto out;
+            }
+        }
     } else {
         warn_report("Unkonwn start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d",
                     start, size, shared_to_private);
     }
 
+out:
     memory_region_unref(section.mr);
     return ret;
 }
@@ -3037,7 +3043,8 @@ int kvm_cpu_exec(CPUState *cpu)
         case KVM_EXIT_MEMORY_FAULT:
                  ret = kvm_convert_memory(run->memory.gpa,
                                           run->memory.size,
-                                          run->memory.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE);
+                                          run->memory.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE,
+                                          false);
             break;
         default:
             DPRINTF("kvm_arch_handle_exit\n");
