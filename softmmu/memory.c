@@ -33,6 +33,7 @@
 #include "qemu/accel.h"
 #include "hw/boards.h"
 #include "migration/vmstate.h"
+#include "exec/confidential-guest-support.h"
 
 //#define DEBUG_UNASSIGNED
 
@@ -1730,6 +1731,79 @@ void memory_region_init_rom_device_nomigrate(MemoryRegion *mr,
         object_unparent(OBJECT(mr));
         error_propagate(errp, err);
     }
+}
+
+#include "qemu/memfd.h"
+
+static void
+memory_region_init_rom_device_nomigrate_private(MemoryRegion *mr,
+                                                Object *owner,
+                                                const MemoryRegionOps *ops,
+                                                void *opaque,
+                                                const char *name,
+                                                uint64_t size,
+                                                Error **errp)
+{
+    Error *err = NULL;
+    int fd, priv_fd;
+
+    assert(ops);
+
+    fd = qemu_memfd_create("rom-backend-memfd-shared", size, false, 0, 0, errp);
+    if (fd == -1) {
+        return;
+    }
+
+    priv_fd = qemu_memfd_restricted(size, 0, errp);
+    if (priv_fd == -1) {
+        return;
+    }
+
+    memory_region_init(mr, owner, name, size);
+    mr->ops = ops;
+    mr->opaque = opaque;
+    mr->terminates = true;
+    mr->rom_device = true;
+    mr->destructor = memory_region_destructor_ram;
+    mr->ram_block = qemu_ram_alloc_from_fd(size, mr, RAM_SHARED|RAM_NORESERVE,
+                                           fd, 0, false, &err);
+    if (err) {
+        mr->size = int128_zero();
+        object_unparent(OBJECT(mr));
+        error_propagate(errp, err);
+    }
+
+    fallocate(priv_fd, 0, 0, size);
+    memory_region_set_restricted_fd(mr, priv_fd);
+}
+
+void memory_region_init_rom_device_private(MemoryRegion *mr,
+                                           Object *owner,
+                                           const MemoryRegionOps *ops,
+                                           void *opaque,
+                                           const char *name,
+                                           uint64_t size,
+                                           Error **errp)
+{
+    DeviceState *owner_dev;
+    Error *err = NULL;
+
+    g_warning("creating ROM device with private memory.");
+
+    memory_region_init_rom_device_nomigrate_private(mr, owner, ops, opaque,
+                                                    name, size, &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
+    /* This will assert if owner is neither NULL nor a DeviceState.
+     * We only want the owner here for the purposes of defining a
+     * unique name for migration. TODO: Ideally we should implement
+     * a naming scheme for Objects which are not DeviceStates, in
+     * which case we can relax this restriction.
+     */
+    owner_dev = DEVICE(owner);
+    vmstate_register_ram(mr, owner_dev);
 }
 
 void memory_region_init_iommu(void *_iommu_mr,
@@ -3468,8 +3542,15 @@ void memory_region_init_ram(MemoryRegion *mr,
                             uint64_t size,
                             Error **errp)
 {
+    ConfidentialGuestSupport *cgs;
     DeviceState *owner_dev;
     Error *err = NULL;
+
+    cgs = MACHINE(qdev_get_machine())->cgs;
+    if (cgs && cgs->use_private_memslots) {
+        return memory_region_init_ram_private(mr, owner, name, size, true,
+                                              errp);
+    }
 
     memory_region_init_ram_nomigrate(mr, owner, name, size, &err);
     if (err) {
@@ -3484,6 +3565,34 @@ void memory_region_init_ram(MemoryRegion *mr,
      */
     owner_dev = DEVICE(owner);
     vmstate_register_ram(mr, owner_dev);
+}
+
+void memory_region_init_ram_private(MemoryRegion *mr,
+                                    Object *owner,
+                                    const char *name,
+                                    uint64_t size,
+                                    bool shared,
+                                    Error **errp)
+{
+    int shared_fd, priv_fd;
+
+    shared_fd = qemu_memfd_create("rom-backend-memfd-shared", size, false, 0, 0, errp);
+    if (shared_fd == -1) {
+        return;
+    }
+
+    priv_fd = qemu_memfd_restricted(size, 0, errp);
+    if (priv_fd == -1) {
+        return;
+    }
+
+    memory_region_init_ram_from_fd(mr, owner, name, size, RAM_SHARED|RAM_NORESERVE, shared_fd, 0, errp);
+
+    if (!shared) {
+        fallocate(priv_fd, 0, 0, size);
+    }
+
+    memory_region_set_restricted_fd(mr, priv_fd);
 }
 
 void memory_region_init_rom(MemoryRegion *mr,
@@ -3518,8 +3627,15 @@ void memory_region_init_rom_device(MemoryRegion *mr,
                                    uint64_t size,
                                    Error **errp)
 {
+    ConfidentialGuestSupport *cgs;
     DeviceState *owner_dev;
     Error *err = NULL;
+
+    cgs = MACHINE(qdev_get_machine())->cgs;
+    if (cgs && cgs->use_private_memslots) {
+        return memory_region_init_rom_device_private(mr, owner, ops, opaque,
+                                                     name, size, errp);
+    }
 
     memory_region_init_rom_device_nomigrate(mr, owner, ops, opaque,
                                             name, size, &err);

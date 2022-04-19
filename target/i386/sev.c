@@ -1714,6 +1714,8 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
                        __func__, ret);
             goto err;
         }
+        g_warning("UPM mode enabled");
+        cgs->use_private_memslots = true;
     }
 
     if (sev_snp_enabled()) {

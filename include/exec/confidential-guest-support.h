@@ -51,6 +51,7 @@ struct ConfidentialGuestSupport {
      * so 'ready' is not set, we'll abort.
      */
     bool ready;
+    bool use_private_memslots;
 };
 
 typedef struct ConfidentialGuestSupportClass {
