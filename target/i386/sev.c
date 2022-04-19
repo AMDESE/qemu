@@ -2180,6 +2180,145 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     return ret;
 }
 
+#define GHCB_MSR_INFO_POS           0
+#define GHCB_MSR_INFO_MASK          MAKE_64BIT_MASK(GHCB_MSR_INFO_POS, 12)
+
+#define GHCB_MSR_PSC_GFN_POS        12
+#define GHCB_MSR_PSC_GFN_MASK       MAKE_64BIT_MASK(GHCB_MSR_PSC_GFN_POS, 39)
+#define GHCB_MSR_PSC_ERROR_POS      32
+#define GHCB_MSR_PSC_ERROR_MASK     MAKE_64BIT_MASK(GHCB_MSR_PSC_ERROR_POS, 32)
+#define GHCB_MSR_PSC_ERROR          GHCB_MSR_PSC_ERROR_MASK
+#define GHCB_MSR_PSC_OP_POS         52
+#define GHCB_MSR_PSC_OP_MASK        MAKE_64BIT_MASK(GHCB_MSR_PSC_OP_POS, 4)
+#define GHCB_MSR_PSC_OP_PRIVATE     1
+#define GHCB_MSR_PSC_OP_SHARED      2
+#define GHCB_MSR_PSC_REQ            0x14
+#define GHCB_MSR_PSC_RESP           0x15
+
+#if 0
+#define GHCB_DATA(v) \
+    (((unsigned long)(v) & ~GHCB_MSR_INFO_MASK) >> GHCB_DATA_LOW
+#endif
+
+#define GHCB_SHARED_BUF_SIZE    0x7f0
+
+struct ghcb_save_area {
+    uint8_t padding[0x390];
+    uint64_t sw_exit_code;
+    uint64_t sw_exit_info1;
+    uint64_t sw_exit_info2;
+} __attribute__((__packed__));
+
+struct ghcb {
+    struct ghcb_save_area save;
+    uint8_t reserved_save[0x800 - sizeof(struct ghcb_save_area)];
+
+    uint8_t shared_buffer[GHCB_SHARED_BUF_SIZE];
+
+    uint8_t reserved_1[10];
+    uint16_t protocol_version;
+    uint16_t ghcb_usage;
+} __attribute__((__packed__));
+
+struct psc_hdr {
+    uint16_t cur_entry;
+    uint16_t end_entry;
+    uint32_t reserved;
+} __attribute__((__packed__));
+
+struct psc_entry {
+    uint64_t cur_page    : 12,
+             gfn         : 40,
+             operation   : 4,
+             pagesize    : 1,
+             reserved    : 7;
+} __attribute__((__packed__));
+
+#define VMGEXIT_PSC_MAX_ENTRY 253
+
+struct snp_psc_desc {
+    struct psc_hdr hdr;
+    struct psc_entry entries[VMGEXIT_PSC_MAX_ENTRY];
+} __attribute__((__packed__));
+
+static int kvm_handle_vmgexit_msr_protocol(__u64 *ghcb_msr)
+{
+    uint64_t op, gfn;
+    int ret;
+
+    if ((*ghcb_msr & GHCB_MSR_INFO_MASK) != GHCB_MSR_PSC_REQ) {
+        g_warning("vmgexit (msr protocol), ghcb_msr: 0x%llx, invalid request",
+                  *ghcb_msr);
+        return -1;
+    }
+
+    op = (*ghcb_msr & GHCB_MSR_PSC_OP_MASK) >> GHCB_MSR_PSC_OP_POS;
+    gfn = (*ghcb_msr & GHCB_MSR_PSC_GFN_MASK) >> GHCB_MSR_PSC_GFN_POS;
+
+    ret = kvm_convert_memory(gfn << TARGET_PAGE_BITS, TARGET_PAGE_SIZE,
+                             op == GHCB_MSR_PSC_OP_PRIVATE);
+
+    if (ret) {
+        *ghcb_msr &= ~GHCB_MSR_PSC_ERROR_MASK;
+        *ghcb_msr |= GHCB_MSR_PSC_ERROR;
+    }
+
+    *ghcb_msr &= ~GHCB_MSR_INFO_MASK;
+    *ghcb_msr |= GHCB_MSR_PSC_RESP;
+
+    return 0;
+}
+
+int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
+{
+    struct ghcb *ghcb;
+    hwaddr len = sizeof(struct ghcb);
+    MemTxAttrs attrs = { 0 };
+    struct snp_psc_desc *desc;
+    uint16_t cur_entry;
+    int i;
+    uint8_t shared_buf[GHCB_SHARED_BUF_SIZE];
+    uint64_t ghcb_addr = *ghcb_msr;
+
+    if (*ghcb_msr & GHCB_MSR_INFO_MASK) {
+        return kvm_handle_vmgexit_msr_protocol(ghcb_msr);
+    }
+
+    ghcb = address_space_map(&address_space_memory, ghcb_addr,
+                                  &len, true, attrs);
+
+    memcpy(shared_buf, ghcb->shared_buffer, GHCB_SHARED_BUF_SIZE);
+    address_space_unmap(&address_space_memory, ghcb, len, true, len);
+
+    desc = (struct snp_psc_desc *)shared_buf;
+    cur_entry = desc->hdr.cur_entry;
+
+    for (i = cur_entry; i <= desc->hdr.end_entry; i++) {
+        struct psc_entry *entry = &desc->entries[i];
+        bool private;
+        int ret;
+
+        private = entry->operation == 1;
+        ret = kvm_convert_memory(entry->gfn * 0x1000, entry->pagesize ? 0x200000 : 0x1000,
+                                 private);
+        if (ret) {
+            g_warning("error doing memory conversion: %d", ret);
+            goto out;
+        }
+        desc->hdr.cur_entry++;
+    }
+
+    /* TODO: what happens if ghcb tries to convert itself? */
+    ghcb = address_space_map(&address_space_memory, ghcb_addr,
+                                  &len, true, attrs);
+    memcpy(ghcb->shared_buffer, shared_buf, GHCB_SHARED_BUF_SIZE);
+    address_space_unmap(&address_space_memory, ghcb, len, true, len);
+
+out:
+    *error = 0;
+    return 0;
+}
+
 static void
 sev_register_types(void)
 {
