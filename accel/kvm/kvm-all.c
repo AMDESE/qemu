@@ -3025,6 +3025,10 @@ int kvm_cpu_exec(CPUState *cpu)
                 ret = EXCP_INTERRUPT;
                 break;
             }
+            if (run_ret == -1) {
+                run_ret = 0;
+                goto skip;
+            }
             fprintf(stderr, "error: kvm run failed %s\n",
                     strerror(-run_ret));
 #ifdef TARGET_PPC
@@ -3039,6 +3043,7 @@ int kvm_cpu_exec(CPUState *cpu)
             break;
         }
 
+skip:
         trace_kvm_run_exit(cpu->cpu_index, run->exit_reason);
         switch (run->exit_reason) {
         case KVM_EXIT_IO:
