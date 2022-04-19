@@ -1423,6 +1423,158 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     return ret;
 }
 
+typedef struct __attribute__((__packed__)) PscHdr {
+    uint16_t cur_entry;
+    uint16_t end_entry;
+    uint32_t reserved;
+} PscHdr;
+
+typedef struct __attribute__((__packed__)) PscEntry {
+    uint64_t cur_page    : 12,
+             gfn         : 40,
+             operation   : 4,
+             pagesize    : 1,
+             reserved    : 7;
+} PscEntry;
+
+#define VMGEXIT_PSC_MAX_ENTRY 253
+
+typedef struct __attribute__((__packed__)) SnpPscDesc {
+    PscHdr hdr;
+    PscEntry entries[VMGEXIT_PSC_MAX_ENTRY];
+} SnpPscDesc;
+
+static int next_contig_gpa_range(SnpPscDesc *desc, uint16_t *entries_processed,
+                                 hwaddr *gfn_base, int *gfn_count,
+                                 bool *range_to_private)
+{
+    int i;
+
+    *entries_processed = 0;
+    *gfn_base = 0;
+    *gfn_count = 0;
+    *range_to_private = false;
+
+    for (i = desc->hdr.cur_entry; i <= desc->hdr.end_entry; i++) {
+        PscEntry *entry = &desc->entries[i];
+        bool to_private = entry->operation == 1;
+        int page_count = entry->pagesize ? 512 : 1;
+
+        if (!*gfn_count) {
+            *range_to_private = to_private;
+            *gfn_base = entry->gfn;
+        }
+
+        /* When first non-adjacent entry is seen, report the previous range */
+        if (entry->gfn != *gfn_base + *gfn_count || (to_private != *range_to_private)) {
+            return 0;
+        }
+
+        *gfn_count += page_count;
+
+        /*
+         * Currently entry-specific PSC_ERROR_INVALID_ENTRY errors are not
+         * returned. Instead only the more general GENERIC/INVALID_HDR
+         * errors are returned. If support for PSC_ERROR_INVALID_ENTRY errors
+         * are added, this logic will need to be re-worked to either not
+         * increment entries_processed until the request is issued
+         * successfully, or to rewind it after failure. Guests don't
+         * currently do anything useful with entry-specific errors so vs.
+         * the other errors types so this is unlikely to be an issue in the
+         * meantime.
+         */
+        entry->cur_page = page_count;
+        *entries_processed += 1;
+    }
+
+    return *gfn_count ? 0 : -ENOENT;
+}
+
+#define GHCB_SHARED_BUF_SIZE    0x7f0
+#define PSC_ERROR_GENERIC       (0x100UL << 32)
+#define PSC_ERROR_INVALID_HDR   ((0x1UL << 32) | 1)
+#define PSC_ERROR_INVALID_ENTRY ((0x1UL << 32) | 2)
+#define PSC_ENTRY_COUNT_MAX     253
+
+static int kvm_handle_vmgexit_psc(__u64 shared_gpa, __u64 *psc_ret)
+{
+    hwaddr len = GHCB_SHARED_BUF_SIZE;
+    MemTxAttrs attrs = { 0 };
+    SnpPscDesc *desc;
+    void *ghcb_shared_buf;
+    uint8_t shared_buf[GHCB_SHARED_BUF_SIZE];
+    uint16_t entries_processed;
+    hwaddr gfn_base = 0;
+    int gfn_count = 0;
+    bool range_to_private;
+
+    *psc_ret = 0;
+    ghcb_shared_buf = address_space_map(&address_space_memory, shared_gpa,
+                                        &len, true, attrs);
+    if (len < GHCB_SHARED_BUF_SIZE) {
+        g_warning("unable to map entire shared GHCB buffer, mapped size %ld (expected %d)",
+                  len, GHCB_SHARED_BUF_SIZE);
+        *psc_ret = PSC_ERROR_GENERIC;
+        goto out_unmap;
+    }
+    memcpy(shared_buf, ghcb_shared_buf, GHCB_SHARED_BUF_SIZE);
+    address_space_unmap(&address_space_memory, ghcb_shared_buf, len, true, len);
+
+    desc = (SnpPscDesc *)shared_buf;
+
+    if (desc->hdr.end_entry >= PSC_ENTRY_COUNT_MAX) {
+        *psc_ret = PSC_ERROR_INVALID_HDR;
+        goto out_unmap;
+    }
+
+    /* No more entries left to process. */
+    if (desc->hdr.cur_entry > desc->hdr.end_entry) {
+        goto out_unmap;
+    }
+
+    while (!next_contig_gpa_range(desc, &entries_processed,
+                                  &gfn_base, &gfn_count, &range_to_private)) {
+        int ret = kvm_convert_memory(gfn_base * 0x1000, gfn_count * 0x1000,
+                                     range_to_private);
+        if (ret) {
+            *psc_ret = 0x100ULL << 32; /* Indicate interrupted processing */
+            g_warning("error doing memory conversion: %d", ret);
+            break;
+        }
+
+        desc->hdr.cur_entry += entries_processed;
+    }
+
+    ghcb_shared_buf = address_space_map(&address_space_memory, shared_gpa,
+                                        &len, true, attrs);
+    if (len < GHCB_SHARED_BUF_SIZE) {
+        g_warning("unable to map entire shared GHCB buffer, mapped size %ld (expected %d)",
+                  len, GHCB_SHARED_BUF_SIZE);
+        *psc_ret = PSC_ERROR_GENERIC;
+        goto out_unmap;
+    }
+    memcpy(ghcb_shared_buf, shared_buf, GHCB_SHARED_BUF_SIZE);
+out_unmap:
+    address_space_unmap(&address_space_memory, ghcb_shared_buf, len, true, len);
+
+    return 0;
+}
+
+int kvm_handle_vmgexit(struct kvm_run *run)
+{
+    int ret;
+
+    if (run->vmgexit.type == KVM_USER_VMGEXIT_PSC) {
+        ret = kvm_handle_vmgexit_psc(run->vmgexit.psc.shared_gpa,
+                                     &run->vmgexit.psc.ret);
+    } else {
+        warn_report("KVM: unknown vmgexit type: %d", run->vmgexit.type);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static char *
 sev_common_get_sev_device(Object *obj, Error **errp)
 {
