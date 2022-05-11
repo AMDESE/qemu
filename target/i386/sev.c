@@ -1225,7 +1225,7 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, hwaddr gpa, uint8_t *addr
 }
 
 static int
-sev_launch_update_data(SevGuestState *sev_guest, uint8_t *addr, uint64_t len)
+sev_launch_update_data(SevGuestState *sev_guest, uint8_t *addr, uint64_t len, hwaddr start)
 {
     int ret, fw_error;
     struct kvm_sev_launch_update_data update;
@@ -1768,7 +1768,7 @@ sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
             ret = sev_snp_launch_update(SEV_SNP_GUEST(sev_common), gpa, ptr,
                                         len, KVM_SEV_SNP_PAGE_TYPE_NORMAL);
         } else {
-            ret = sev_launch_update_data(SEV_GUEST(sev_common), ptr, len);
+            ret = sev_launch_update_data(SEV_GUEST(sev_common), ptr, len, gpa);
         }
         if (ret < 0) {
             error_setg(errp, "SEV: Failed to encrypt pflash rom");
