@@ -12,6 +12,7 @@
 
 #include "qemu/osdep.h"
 #include "sysemu/hostmem.h"
+#include "hw/boards.h"
 #include "qom/object_interfaces.h"
 #include "qemu/memfd.h"
 #include "qemu/module.h"
@@ -33,6 +34,7 @@ static void
 priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
 {
     HostMemoryBackendPrivateMemfd *m = MEMORY_BACKEND_MEMFD_PRIVATE(backend);
+    MachineState *machine = MACHINE(qdev_get_machine());
     uint32_t ram_flags;
     char *name;
     int fd, priv_fd;
@@ -61,6 +63,7 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
     g_free(name);
 
     memory_region_set_restricted_fd(&backend->mr, priv_fd);
+    machine->ram_size = backend->size;
 }
 
 static bool
