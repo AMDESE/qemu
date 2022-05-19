@@ -2465,6 +2465,19 @@ static void register_smram_listener(Notifier *n, void *unused)
 
 #define KVM_EXIT_HYPERCALL_VALID_MASK (1 << KVM_HC_MAP_GPA_RANGE)
 
+static __u64 bitmap;
+struct kvm_msr_filter msr_filter_allow = {
+    .flags = KVM_MSR_FILTER_DEFAULT_ALLOW,
+    .ranges = {
+        {
+            .flags = KVM_MSR_FILTER_READ | KVM_MSR_FILTER_WRITE,
+            .nmsrs = 1,
+            .base = MSR_KVM_MIGRATION_CONTROL,
+            .bitmap = (uint8_t *)&bitmap,
+        }
+    }
+};
+
 int kvm_arch_init(MachineState *ms, KVMState *s)
 {
     uint64_t identity_base = 0xfffbc000;
@@ -2531,6 +2544,21 @@ int kvm_arch_init(MachineState *ms, KVMState *s)
             error_report("kvm: Failed to enable MAP_GPA_RANGE cap: %s",
                          strerror(-ret));
             return ret;
+        }
+    }
+
+    ret = kvm_check_extension(s, KVM_CAP_X86_USER_SPACE_MSR) ?
+          kvm_check_extension(s, KVM_CAP_X86_MSR_FILTER) :
+          -ENOTSUP;
+    if (ret > 0) {
+        ret = kvm_vm_enable_cap(s, KVM_CAP_X86_USER_SPACE_MSR,
+                                0, KVM_MSR_EXIT_REASON_FILTER);
+        if (ret == 0) {
+            ret = kvm_vm_ioctl(s, KVM_X86_SET_MSR_FILTER, &msr_filter_allow);
+            if (ret < 0) {
+                error_report("kvm: KVM_X86_SET_MSR_FILTER failed : %s",
+                             strerror(-ret));
+            }
         }
     }
 
@@ -5418,6 +5446,7 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         break;
     case KVM_EXIT_HYPERCALL:
         ret = kvm_handle_exit_hypercall(cpu, run);
+        break;
         break;
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
