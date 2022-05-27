@@ -1,0 +1,149 @@
+/*
+ * QEMU abstract of Host IOMMU
+ *
+ * Copyright (C) 2022 Intel Corporation.
+ *
+ * Authors: Yi Liu <yi.l.liu@intel.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "qemu/osdep.h"
+#include "qapi/error.h"
+#include "qom/object.h"
+#include "qapi/visitor.h"
+#include "sysemu/iommufd_device.h"
+#include <sys/ioctl.h>
+#include "qemu/error-report.h"
+
+int iommufd_device_attach_hwpt(IOMMUFDDevice *idev, uint32_t *pasid,
+                               uint32_t hwpt_id)
+{
+    IOMMUFDDeviceClass *idevc;
+
+    idevc = IOMMU_DEVICE_GET_CLASS(idev);
+
+    if (!idevc->attach_hwpt) {
+        return -EINVAL;
+    }
+
+    return idevc->attach_hwpt(idev, pasid, hwpt_id);
+}
+
+int iommufd_device_detach_hwpt(IOMMUFDDevice *idev, uint32_t *pasid)
+{
+    IOMMUFDDeviceClass *idevc;
+
+    idevc = IOMMU_DEVICE_GET_CLASS(idev);
+
+    if (!idevc->detach_hwpt) {
+        return -EINVAL;
+    }
+
+    return idevc->detach_hwpt(idev, pasid);
+}
+
+int iommufd_device_get_info(IOMMUFDDevice *idev,
+                            enum iommu_hw_info_type *type,
+                            uint32_t len, void *data)
+{
+    struct iommu_hw_info info = {
+        .size = sizeof(info),
+        .flags = 0,
+        .dev_id = idev->dev_id,
+        .data_len = len,
+        .__reserved = 0,
+        .data_ptr = (uint64_t)data,
+    };
+    int ret;
+
+    ret = ioctl(idev->iommufd, IOMMU_GET_HW_INFO, &info);
+    if (ret) {
+        error_report("Failed to get info %m");
+    } else {
+        *type = info.out_data_type;
+    }
+
+    return ret;
+}
+
+/* Caller needs to free the resv pointer */
+int iommufd_device_get_resv_iova(IOMMUFDDevice *idev,
+                                 struct iommu_resv_iova_range **resv)
+{
+    struct iommu_resv_iova_ranges ranges = {
+        .size = sizeof(ranges),
+        .dev_id = idev->dev_id,
+        .__reserved = 0,
+    };
+    struct iommu_resv_iova_range *iovas;
+    int ret;
+
+    iovas = g_new0(struct iommu_resv_iova_range, 1);
+    ranges.resv_iovas = (uint64_t)iovas;
+    ranges.num_iovas = 1;
+again:
+
+    ret = ioctl(idev->iommufd, IOMMU_RESV_IOVA_RANGES, &ranges);
+    if (ret) {
+        if (errno == -EMSGSIZE) {
+            iovas = g_realloc(iovas, ranges.num_iovas*sizeof(*iovas));
+            ranges.resv_iovas = (uint64_t)iovas;
+            goto again;
+        }
+        error_report("Failed to get resve iovas %m");
+    } else {
+        *resv = iovas;
+	printf("num_iovas: %u\n", ranges.num_iovas);
+    }
+
+    return ret;
+}
+
+void iommufd_device_init(void *_idev, size_t instance_size,
+                       const char *mrtypename, int fd,
+                       uint32_t dev_id, uint32_t ioas_id)
+{
+    IOMMUFDDevice *idev;
+
+    object_initialize(_idev, instance_size, mrtypename);
+    idev = IOMMU_DEVICE(_idev);
+    idev->iommufd = fd;
+    idev->dev_id = dev_id;
+    idev->ioas_id = ioas_id;
+    idev->initialized = true;
+}
+
+static void iommufd_device_finalize_fn(Object *obj)
+{
+#if 0
+    IOMMUFDDevice *idev = IOMMU_DEVICE(obj);
+#endif
+}
+
+static const TypeInfo iommufd_device_device = {
+    .parent             = TYPE_OBJECT,
+    .name               = TYPE_IOMMUFD_DEVICE,
+    .class_size         = sizeof(IOMMUFDDeviceClass),
+    .instance_size      = sizeof(IOMMUFDDevice),
+    .instance_finalize  = iommufd_device_finalize_fn,
+    .abstract           = true,
+};
+
+static void iommufd_device_register_types(void)
+{
+    type_register_static(&iommufd_device_device);
+}
+
+type_init(iommufd_device_register_types)

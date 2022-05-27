@@ -21,7 +21,7 @@ if have_vhost_user
 endif
 system_ss.add(when: 'CONFIG_VIRTIO_CRYPTO', if_true: files('cryptodev-vhost.c'))
 if have_iommufd
-  system_ss.add(files('iommufd.c'))
+  system_ss.add(files('iommufd.c', 'iommufd_device.c'))
 endif
 if have_vhost_user_crypto
   system_ss.add(when: 'CONFIG_VIRTIO_CRYPTO', if_true: files('cryptodev-vhost-user.c'))
