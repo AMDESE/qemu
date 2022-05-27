@@ -19,7 +19,7 @@ endif
 if have_vhost_user
   softmmu_ss.add(when: 'CONFIG_VIRTIO', if_true: files('vhost-user.c'))
 endif
-specific_ss.add(when: 'CONFIG_IOMMUFD', if_true: files('iommufd.c'),
+specific_ss.add(when: 'CONFIG_IOMMUFD', if_true: files('iommufd.c', 'iommufd_device.c'),
                                         if_false: files('iommufd_stub.c'))
 softmmu_ss.add(when: 'CONFIG_VIRTIO_CRYPTO', if_true: files('cryptodev-vhost.c'))
 if have_vhost_user_crypto
