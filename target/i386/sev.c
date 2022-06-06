@@ -1722,6 +1722,22 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         goto err;
     }
 
+    if (kvm_has_restricted_memory()) {
+        bool has_restricted_memory_support =
+            kvm_check_extension(kvm_state, KVM_CAP_VM_TYPES) & BIT(KVM_X86_PROTECTED_VM);
+        X86MachineState *x86ms = X86_MACHINE(qdev_get_machine());
+
+        if (!has_restricted_memory_support) {
+            error_setg(errp, "%s: kernel does not support restricted guest memory",
+                       __func__);
+            goto err;
+        }
+
+        /* Disable SMM for vm-type=protected */
+        x86ms->smm = ON_OFF_AUTO_OFF;
+        g_warning("Restricted memory (UPM) enabled, disabling SMM.");
+    }
+
     if (sev_snp_enabled()) {
         ret = sev_snp_launch_start(SEV_SNP_GUEST(sev_common));
     } else {
