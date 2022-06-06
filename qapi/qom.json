@@ -836,12 +836,15 @@
 # @reduced-phys-bits: number of bits in physical addresses that become
 #                     unavailable when SEV is enabled
 #
+# @upm-mode: configure Unmapped Private Memory mode
+#
 # Since: 2.12
 ##
 { 'struct': 'SevCommonProperties',
   'data': { '*sev-device': 'str',
             '*cbitpos': 'uint32',
-            'reduced-phys-bits': 'uint32' } }
+            'reduced-phys-bits': 'uint32',
+            '*upm-mode': 'bool' } }
 
 ##
 # @SevGuestProperties:

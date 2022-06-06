@@ -63,6 +63,7 @@ struct SevCommonState {
     char *sev_device;
     uint32_t cbitpos;
     uint32_t reduced_phys_bits;
+    bool upm_mode;
 
     /* runtime state */
     uint8_t api_major;
@@ -351,6 +352,16 @@ sev_common_set_sev_device(Object *obj, const char *value, Error **errp)
     SEV_COMMON(obj)->sev_device = g_strdup(value);
 }
 
+static bool sev_common_get_upm_mode(Object *obj, Error **errp)
+{
+    return SEV_COMMON(obj)->upm_mode;
+}
+
+static void sev_common_set_upm_mode(Object *obj, bool value, Error **errp)
+{
+    SEV_COMMON(obj)->upm_mode = value;
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -359,6 +370,11 @@ sev_common_class_init(ObjectClass *oc, void *data)
                                   sev_common_set_sev_device);
     object_class_property_set_description(oc, "sev-device",
             "SEV device to use");
+    object_class_property_add_bool(oc, "upm-mode",
+                                   sev_common_get_upm_mode,
+                                   sev_common_set_upm_mode);
+    object_class_property_set_description(oc, "upm-mode",
+            "enable Unmapped Private Memory mode");
 }
 
 static void
@@ -1661,6 +1677,23 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         error_setg(errp, "%s: failed to initialize ret=%d fw_error=%d '%s'",
                    __func__, ret, fw_error, fw_error_to_str(fw_error));
         goto err;
+    }
+
+    if (sev_common->upm_mode) {
+        bool has_upm = kvm_check_extension(kvm_state, KVM_CAP_UNMAPPED_PRIVATE_MEM);
+
+        if (!has_upm) {
+            error_setg(errp, "%s: KVM_CAP_UNMAPPED_PRIVATE_MEM not supported",
+                       __func__);
+            goto err;
+        }
+
+        ret = kvm_vm_enable_cap(kvm_state, KVM_CAP_UNMAPPED_PRIVATE_MEM, 0, 0);
+        if (ret) {
+            error_setg(errp, "%s: failed to enable KVM_CAP_UNMAPPED_PRIVATE_MEM, ret=%d",
+                       __func__, ret);
+            goto err;
+        }
     }
 
     if (sev_snp_enabled()) {
