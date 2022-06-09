@@ -759,6 +759,18 @@ sev_es_enabled(void)
             (sev_enabled() && SEV_GUEST(cgs)->policy & SEV_POLICY_ES);
 }
 
+bool
+sev_upm_enabled(void)
+{
+    ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
+    SevCommonState *sev_common = (SevCommonState *)object_dynamic_cast(OBJECT(cgs), TYPE_SEV_COMMON);
+
+    if (!sev_common)
+        return false;
+
+    return sev_common->upm_mode;
+}
+
 uint32_t
 sev_get_cbit_position(void)
 {
