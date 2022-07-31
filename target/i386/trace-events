@@ -14,3 +14,5 @@ kvm_sev_attestation_report(const char *mnonce, const char *data) "mnonce %s data
 kvm_sev_snp_launch_start(uint64_t policy, char *gosvw) "policy 0x%" PRIx64 " gosvw %s"
 kvm_sev_snp_launch_update(void *addr, uint32_t gpa, uint64_t len, const char *type) "addr %p gpa 0x%x len 0x%" PRIx64 " (%s page)"
 kvm_sev_snp_launch_finish(char *id_block, char *id_auth, char *host_data) "id_block %s id_auth %s host_data %s"
+kvm_vmgexit_psc(uint64_t gfn, uint64_t page_size, uint64_t page_offset, int operation, bool shared_to_private) "gfn 0x%" PRIx64 " page_size 0x%" PRIx64 " page_offset %" PRIu64 " operation %d shared_to_private %d"
+kvm_vmgexit_psc_msr_proto(uint64_t gfn, uint64_t page_size, int operation) "gfn 0x%" PRIx64 " page_size 0x%" PRIx64 " shared_to_private %d"
