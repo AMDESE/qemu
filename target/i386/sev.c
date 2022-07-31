@@ -2211,6 +2211,8 @@ static int kvm_handle_vmgexit_msr_protocol(__u64 *ghcb_msr)
     op = (*ghcb_msr & GHCB_MSR_PSC_OP_MASK) >> GHCB_MSR_PSC_OP_POS;
     gfn = (*ghcb_msr & GHCB_MSR_PSC_GFN_MASK) >> GHCB_MSR_PSC_GFN_POS;
 
+    trace_kvm_vmgexit_psc_msr_proto(gfn, 0x1000, op == GHCB_MSR_PSC_OP_PRIVATE);
+
     ret = kvm_convert_memory(gfn << TARGET_PAGE_BITS, TARGET_PAGE_SIZE,
                              op == GHCB_MSR_PSC_OP_PRIVATE, false);
 
@@ -2261,6 +2263,10 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
                   entry->cur_page, (uint64_t)entry->gfn, entry->operation, entry->pagesize);
 
         private = entry->operation == 1;
+
+        trace_kvm_vmgexit_psc(entry->gfn, entry->pagesize ? 0x200000 : 0x1000,
+                              entry->cur_page, entry->operation, private);
+
         ret = kvm_convert_memory(entry->gfn * 0x1000, entry->pagesize ? 0x200000 : 0x1000,
                                  private, false);
         if (ret) {
