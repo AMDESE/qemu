@@ -55,6 +55,7 @@ qmp_job_complete(void *job) "job %p"
 qmp_job_finalize(void *job) "job %p"
 qmp_job_dismiss(void *job) "job %p"
 
+ram_block_convert_range(int fd, int restricted_fd, uint64_t gfn, uint64_t size, bool shared_to_private) "fd %d restricted_fd %d start_offset 0x%" PRIx64 " size 0x%" PRIx64 " shared_to_private %d"
 
 ### Guest events, keep at bottom
 
