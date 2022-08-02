@@ -820,11 +820,10 @@ sev_get_capabilities(Error **errp)
     SevCapability *cap = NULL;
     guchar *pdh_data = NULL;
     guchar *cert_chain_data = NULL;
+    guchar *cpu0_id_data = NULL;
     size_t pdh_len = 0, cert_chain_len = 0;
     uint32_t ebx;
     int fd;
-    SevCommonState *sev_common;
-    char *sev_device;
 
     if (!kvm_enabled()) {
         error_setg(errp, "KVM not enabled");
@@ -835,21 +834,12 @@ sev_get_capabilities(Error **errp)
         return NULL;
     }
 
-    sev_common = SEV_COMMON(MACHINE(qdev_get_machine())->cgs);
-    if (!sev_common) {
-        error_setg(errp, "SEV is not configured");
-    }
-
-    sev_device = object_property_get_str(OBJECT(sev_common), "sev-device",
-                                         &error_abort);
-    fd = open(sev_device, O_RDWR);
+    fd = open(DEFAULT_SEV_DEVICE, O_RDWR);
     if (fd < 0) {
         error_setg_errno(errp, errno, "Failed to open %s",
                          DEFAULT_SEV_DEVICE);
-        g_free(sev_device);
         return NULL;
     }
-    g_free(sev_device);
 
     if (sev_get_pdh_info(fd, &pdh_data, &pdh_len,
                          &cert_chain_data, &cert_chain_len, errp)) {
@@ -870,6 +860,7 @@ sev_get_capabilities(Error **errp)
     cap->reduced_phys_bits = 1;
 
 out:
+    g_free(cpu0_id_data);
     g_free(pdh_data);
     g_free(cert_chain_data);
     close(fd);
