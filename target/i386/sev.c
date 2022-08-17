@@ -34,6 +34,11 @@
 #include "monitor/monitor.h"
 #include "exec/confidential-guest-support.h"
 #include "hw/i386/pc.h"
+#include "qemu/range.h"
+#include "hw/loader.h"
+#include "qemu/datadir.h"
+#include "hw/i386/e820_memory_layout.h"
+#include "hw/nvram/fw_cfg.h"
 
 #define TYPE_SEV_COMMON "sev-common"
 OBJECT_DECLARE_SIMPLE_TYPE(SevCommonState, SEV_COMMON)
@@ -138,6 +143,35 @@ typedef struct QEMU_PACKED SevHashTable {
 #define VMPL2 2
 #define VMPL3 3
 
+#define SVSM_INFO_GUID "a789a612-0597-4c4b-a49f-cbb1fe9d1ddd"
+typedef struct __attribute__((__packed__)) SvsmInfoBlock {
+    /* SVSM GPA Load Address */
+    uint64_t svsm_gpa;
+    uint64_t svsm_mem;
+
+    /* SVSM Pagetable Address */
+    uint64_t pgd;
+
+    /* SVSM Descriptor Tables */
+    uint64_t gdt_base;
+    uint16_t gdt_limit;
+    uint64_t idt_base;
+    uint16_t idt_limit;
+
+    /* SVSM 64-bit Code Selector */
+    uint16_t cs_selector;
+    uint64_t cs_attrs;
+
+    /* SVSM System Control Registers */
+    uint64_t bsp_rip;
+    uint64_t efer;
+    uint64_t cr0;
+    uint64_t cr4;
+} SvsmInfoBlock;
+
+static hwaddr bios_gpa;
+static uint64_t bios_size;
+
 static Error *sev_mig_blocker;
 
 static const char *const sev_fw_errlist[] = {
@@ -205,6 +239,57 @@ typedef struct {
     uint64_t reserved2;
     SnpCpuidFunc entries[SNP_CPUID_FUNCTION_MAXCOUNT];
 } __attribute__((packed)) SnpCpuidInfo;
+
+typedef struct {
+    uint16_t selector;
+    uint16_t type       : 4,
+             s          : 1,
+             dpl        : 2,
+             p          : 1,
+             avl        : 1,
+             reserved_1 : 1,
+             db         : 1,
+             g          : 1,
+             reserved_2 : 4;
+    uint32_t limit;
+    uint64_t base;
+} VmsaSegmentRegister;
+
+typedef struct {
+    VmsaSegmentRegister es;
+    VmsaSegmentRegister cs;
+    VmsaSegmentRegister ss;
+    VmsaSegmentRegister ds;
+    VmsaSegmentRegister fs;
+    VmsaSegmentRegister gs;
+    VmsaSegmentRegister gdtr;
+    VmsaSegmentRegister ldtr;
+    VmsaSegmentRegister idtr;
+    VmsaSegmentRegister tr;
+    uint8_t  reserved_1[42];
+    uint8_t  vmpl;
+    uint8_t  reserved_2[5];
+    uint64_t efer;
+    uint8_t  reserved_3[112];
+    uint64_t cr4;
+    uint64_t cr3;
+    uint64_t cr0;
+    uint64_t dr7;
+    uint64_t dr6;
+    uint64_t rflags;
+    uint64_t rip;
+    uint8_t  reserved_4[232];
+    uint64_t g_pat;
+    uint8_t  reserved_5[160];
+    uint64_t rdx;
+    uint8_t  reserved_6[152];
+    uint64_t sev_features;
+    uint8_t  reserved_7[48];
+    uint64_t xcr0;
+    uint8_t  reserved_8[3088];
+} Vmsa;
+
+static Vmsa *vmpl1_vmsa;
 
 static int
 sev_ioctl(int fd, int cmd, void *data, int *error)
@@ -1301,7 +1386,7 @@ sev_snp_cpuid_report_mismatches(SnpCpuidInfo *old,
 }
 
 static int
-snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint32_t cpuid_addr,
+snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint64_t cpuid_addr,
                         void *hva, uint32_t cpuid_len, uint8_t vmpl)
 {
     KvmCpuidInfo kvm_cpuid_info = {0};
@@ -1344,6 +1429,24 @@ snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint32_t cpuid_addr,
 }
 
 static int
+snp_launch_update_bios_bsp(SevSnpGuestState *sev_snp, uint64_t vmsa_addr,
+                           void *hva, uint32_t vmsa_len, uint8_t vmpl)
+{
+    int type;
+
+    assert(sizeof(*vmpl1_vmsa) <= vmsa_len);
+
+    if (vmpl1_vmsa) {
+        memcpy(hva, vmpl1_vmsa, sizeof(*vmpl1_vmsa));
+        type = KVM_SEV_SNP_PAGE_TYPE_NORMAL;
+    } else {
+        type = KVM_SEV_SNP_PAGE_TYPE_ZERO;
+    }
+
+    return sev_snp_launch_update(sev_snp, vmsa_addr, hva, vmsa_len, type, vmpl);
+}
+
+static int
 snp_metadata_desc_to_page_type(int desc_type)
 {
     switch(desc_type) {
@@ -1351,47 +1454,86 @@ snp_metadata_desc_to_page_type(int desc_type)
     case SEV_DESC_TYPE_SNP_SEC_MEM: return KVM_SEV_SNP_PAGE_TYPE_ZERO;
     case SEV_DESC_TYPE_SNP_SECRETS: return KVM_SEV_SNP_PAGE_TYPE_SECRETS;
     case SEV_DESC_TYPE_CPUID: return KVM_SEV_SNP_PAGE_TYPE_CPUID;
+    case SEV_DESC_TYPE_SVSM_CAA: return KVM_SEV_SNP_PAGE_TYPE_ZERO;
+    case SEV_DESC_TYPE_SVSM_BIOS_BSP: return KVM_SEV_SNP_PAGE_TYPE_NORMAL;
     default: return -1;
     }
 }
 
 static void
-snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
-                            OvmfSevMetadata *metadata)
+__snp_populate_metadata_pages(SevSnpGuestState *sev_snp, uint32_t d_type,
+                              uint64_t d_base, uint32_t d_len, uint8_t vmpl)
 {
-    OvmfSevMetadataDesc *desc;
-    int type, ret, i;
+    int type, ret;
     void *hva;
     MemoryRegion *mr = NULL;
 
-    for (i = 0; i < metadata->header.num_desc; i++) {
-        desc = &metadata->descs[i];
+    if (vmpl &&
+        (d_type == SEV_DESC_TYPE_CPUID ||
+         d_type == SEV_DESC_TYPE_SNP_SECRETS)) {
+        /*
+         * If not updating for VMPL0, treat the CPUID and Secrets pages
+         * as type-zero pages.
+         */
+        d_type = SEV_DESC_TYPE_SNP_SEC_MEM;
+    }
 
-        type = snp_metadata_desc_to_page_type(desc->type);
-        if (type < 0) {
-            error_report("%s: Invalid memory type '%d'\n", __func__, desc->type);
-            exit(1);
-        }
+    type = snp_metadata_desc_to_page_type(d_type);
+    if (type < 0) {
+        error_report("%s: Invalid memory type '%d'\n", __func__, d_type);
+        exit(1);
+    }
 
-        hva = gpa2hva(&mr, desc->base, desc->len, NULL);
-        if (!hva) {
-            error_report("%s: Failed to get HVA for GPA 0x%x sz 0x%x\n",
-                         __func__, desc->base, desc->len);
-            exit(1);
-        }
+    hva = gpa2hva(&mr, d_base, d_len, NULL);
+    if (!hva) {
+        error_report("%s: Failed to get HVA for GPA 0x%lx sz 0x%x\n",
+                     __func__, d_base, d_len);
+        exit(1);
+    }
 
-        if (desc->type == SEV_DESC_TYPE_CPUID) {
-            ret = snp_launch_update_cpuid(sev_snp, desc->base, hva, desc->len,
-                                          VMPL0);
-        } else {
-            ret = sev_snp_launch_update(sev_snp, desc->base, hva, desc->len,
-                                        type, VMPL0);
-        }
+    if (d_type == SEV_DESC_TYPE_CPUID) {
+        ret = snp_launch_update_cpuid(sev_snp, d_base, hva, d_len, vmpl);
+    } else if (d_type == SEV_DESC_TYPE_SVSM_BIOS_BSP) {
+        ret = snp_launch_update_bios_bsp(sev_snp, d_base, hva, d_len, vmpl);
+    } else {
+        ret = sev_snp_launch_update(sev_snp, d_base, hva, d_len, type, vmpl);
+    }
 
-        if (ret) {
-            error_report("%s: Failed to add metadata page gpa 0x%x+%x type %d\n",
-                         __func__, desc->base, desc->len, desc->type);
-            exit(1);
+    if (ret) {
+        error_report("%s: Failed to add metadata page gpa 0x%lx+%x type %d\n",
+                     __func__, d_base, d_len, d_type);
+        exit(1);
+    }
+}
+
+static void
+snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
+                            SevMetadataHeader *metadata, uint8_t vmpl)
+{
+    int data, i;
+
+    if (memcmp(metadata->signature, "ASEV", 4) == 0) {
+        data = OVMF_SEV_META_DATA;
+    } else if (memcmp(metadata->signature, "SVSM", 4) == 0) {
+        data = SVSM_SEV_META_DATA;
+    } else {
+        error_report("%s: Unsupported metadata page provided", __func__);
+        exit(1);
+    }
+
+    for (i = 0; i < metadata->num_desc; i++) {
+        if (data == OVMF_SEV_META_DATA) {
+            OvmfSevMetadata *ovmf_metadata = (OvmfSevMetadata *)metadata;
+            OvmfSevMetadataDesc *desc = &ovmf_metadata->descs[i];
+
+            __snp_populate_metadata_pages(sev_snp, desc->type,
+                                          desc->base, desc->len, vmpl);
+        } else if (data == SVSM_SEV_META_DATA) {
+            SvsmSevMetadata *svsm_metadata = (SvsmSevMetadata *)metadata;
+            SvsmSevMetadataDesc *desc = &svsm_metadata->descs[i];
+
+            __snp_populate_metadata_pages(sev_snp, desc->type,
+                                          desc->base, desc->len, vmpl);
         }
     }
 }
@@ -1399,24 +1541,46 @@ snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
 static void
 sev_snp_launch_finish(SevSnpGuestState *sev_snp)
 {
+    MachineState *ms = MACHINE(qdev_get_machine());
     int ret, error;
     Error *local_err = NULL;
-    OvmfSevMetadata *metadata;
+    SevMetadataHeader *metadata;
     struct kvm_sev_snp_launch_finish *finish = &sev_snp->kvm_finish_conf;
+    uint8_t vmpl = 0;
 
     /*
      * To boot the SNP guest, the hypervisor is required to populate the CPUID
      * and Secrets page before finalizing the launch flow. The location of
-     * the secrets and CPUID page is available through the OVMF metadata GUID.
+     * the secrets and CPUID page is available through the SVSM or OVMF metadata
+     * GUID.
      */
-    metadata = pc_system_get_ovmf_sev_metadata_ptr();
+    if (ms->svsm) {
+        fw_cfg_add_file(fw_cfg_find(), "etc/bios_gpa",
+                        g_memdup(&bios_gpa, sizeof(bios_gpa)), sizeof(bios_gpa));
+        fw_cfg_add_file(fw_cfg_find(), "etc/bios_size",
+                        g_memdup(&bios_size, sizeof(bios_size)), sizeof(bios_size));
+
+        metadata = (SevMetadataHeader *)pc_system_get_svsm_sev_metadata_ptr();
+        if (metadata == NULL) {
+            error_report("%s: Failed to locate SVSM SEV metadata header\n", __func__);
+            exit(1);
+        }
+
+        /* Populate all the SVSM metadata pages at VMPL0 */
+        snp_populate_metadata_pages(sev_snp, metadata, VMPL0);
+
+	/* BIOS/OVMF will use VMPL1 now */
+        vmpl = 1;
+    }
+
+    metadata = (SevMetadataHeader *)pc_system_get_ovmf_sev_metadata_ptr();
     if (metadata == NULL) {
-        error_report("%s: Failed to locate SEV metadata header\n", __func__);
+        error_report("%s: Failed to locate OVMF SEV metadata header\n", __func__);
         exit(1);
     }
 
-    /* Populate all the metadata pages */
-    snp_populate_metadata_pages(sev_snp, metadata);
+    /* Populate all the metadata pages (VMPL depends on SVSM) */
+    snp_populate_metadata_pages(sev_snp, metadata, vmpl);
 
     trace_kvm_sev_snp_launch_finish(sev_snp->id_block, sev_snp->id_auth,
                                     sev_snp->host_data);
@@ -1590,14 +1754,18 @@ err:
     return -1;
 }
 
-int
-sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
+static int
+sev_encrypt_data(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
 {
-    SevCommonState *sev_common = SEV_COMMON(MACHINE(qdev_get_machine())->cgs);
+    MachineState *ms = MACHINE(qdev_get_machine());
+    SevCommonState *sev_common = SEV_COMMON(ms->cgs);
+    uint8_t vmpl;
 
     if (!sev_common) {
         return 0;
     }
+
+    vmpl = (ms->svsm) ? VMPL1 : VMPL0;
 
     /* if SEV is in update state then encrypt the data else do nothing */
     if (sev_check_state(sev_common, SEV_STATE_LAUNCH_UPDATE)) {
@@ -1606,7 +1774,7 @@ sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
         if (sev_snp_enabled()) {
             ret = sev_snp_launch_update(SEV_SNP_GUEST(sev_common), gpa, ptr,
                                         len, KVM_SEV_SNP_PAGE_TYPE_NORMAL,
-                                        VMPL0);
+                                        vmpl);
         } else {
             ret = sev_launch_update_data(SEV_GUEST(sev_common), ptr, len);
         }
@@ -1617,6 +1785,14 @@ sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
     }
 
     return 0;
+}
+
+int sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
+{
+    bios_gpa = gpa;
+    bios_size = len;
+
+    return sev_encrypt_data(gpa, ptr, len, errp);
 }
 
 int sev_inject_launch_secret(const char *packet_hdr, const char *secret,
@@ -1724,16 +1900,118 @@ sev_es_find_reset_state(void *flash_ptr, uint64_t flash_size)
     return info;
 }
 
+static void sev_svsm_set_vmsa_seg(VmsaSegmentRegister *vmsa_seg, SegmentCache *env_seg)
+{
+    vmsa_seg->selector = env_seg->selector;
+    vmsa_seg->limit    = env_seg->limit;
+    vmsa_seg->base     = env_seg->base;
+    vmsa_seg->type     = (env_seg->flags >> DESC_TYPE_SHIFT) & 0xf;
+    vmsa_seg->dpl      = (env_seg->flags >> DESC_DPL_SHIFT)  & 0x3;
+    vmsa_seg->s        = (env_seg->flags & DESC_S_MASK)   ? 1 : 0;
+    vmsa_seg->p        = (env_seg->flags & DESC_P_MASK)   ? 1 : 0;
+    vmsa_seg->avl      = (env_seg->flags & DESC_AVL_MASK) ? 1 : 0;
+    vmsa_seg->db       = (env_seg->flags & DESC_B_MASK)   ? 1 : 0;
+    vmsa_seg->g        = (env_seg->flags & DESC_G_MASK)   ? 1 : 0;
+}
+
+static void sev_svsm_set_vmpl1_vmsa(CPUX86State *env)
+{
+    if (vmpl1_vmsa) {
+        return;
+    }
+
+    vmpl1_vmsa = g_malloc(sizeof(*vmpl1_vmsa));
+    memset(vmpl1_vmsa, 0, sizeof(*vmpl1_vmsa));
+
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->cs, &env->segs[R_CS]);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->ds, &env->segs[R_DS]);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->es, &env->segs[R_ES]);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->fs, &env->segs[R_FS]);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->gs, &env->segs[R_GS]);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->ss, &env->segs[R_SS]);
+
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->gdtr, &env->gdt);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->ldtr, &env->ldt);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->idtr, &env->idt);
+    sev_svsm_set_vmsa_seg(&vmpl1_vmsa->tr, &env->tr);
+
+    vmpl1_vmsa->rip    = env->eip;
+
+    vmpl1_vmsa->efer   = env->efer  | MSR_EFER_SVME;
+    vmpl1_vmsa->cr4    = env->cr[4] | CR4_MCE_MASK;
+    vmpl1_vmsa->cr0    = env->cr[0] & ~(CR0_NW_MASK | CR0_CD_MASK);
+    vmpl1_vmsa->dr7    = env->dr[7];
+    vmpl1_vmsa->dr6    = env->dr[6];
+    vmpl1_vmsa->rflags = env->eflags;
+    vmpl1_vmsa->g_pat  = env->pat;
+    vmpl1_vmsa->rdx    = env->cpuid_version;
+    vmpl1_vmsa->xcr0   = env->xcr0;
+}
+
+static void sev_svsm_set_reset_state(CPUState *cpu)
+{
+    X86CPU *x86;
+    CPUX86State *env;
+    MachineState *ms = MACHINE(qdev_get_machine());
+    SvsmInfoBlock *info = SEV_COMMON(ms->cgs)->reset_info;
+    unsigned int cs_flags;
+
+    x86 = X86_CPU(cpu);
+    env = &x86->env;
+
+    if (cpu->cpu_index) {
+        /* The SVSM APs are created by the SVSM, so set invalid values */
+        return;
+    }
+
+    /*
+     * Create and save the BIOS environment for measuring before switching to
+     * the SVSM environment for the BSP.
+     */
+    sev_svsm_set_vmpl1_vmsa(env);
+
+    /* The SVSM BSP starts in 64-bit mode */
+    cpu_load_efer(env, info->efer);
+
+    cpu_x86_update_cr4(env, info->cr4);
+    cpu_x86_update_cr0(env, info->cr0);
+    cpu_x86_update_cr3(env, info->pgd);
+
+    env->eflags = 0x2;
+
+    env->gdt.base = info->gdt_base;
+    env->gdt.limit = info->gdt_limit;
+    env->idt.base = info->idt_base;
+    env->idt.limit = info->idt_limit;
+
+    cs_flags = (info->cs_attrs >> 32) & DESC_FLAGS_MASK;
+    cpu_x86_load_seg_cache(env, R_CS, info->cs_selector, 0,
+                           0xffffffff, cs_flags);
+    env->eip = info->bsp_rip;
+
+    cpu_x86_load_seg_cache(env, R_ES, 0, 0, 0, 0);
+    cpu_x86_load_seg_cache(env, R_SS, 0, 0, 0, 0);
+    cpu_x86_load_seg_cache(env, R_DS, 0, 0, 0, 0);
+    cpu_x86_load_seg_cache(env, R_FS, 0, 0, 0, 0);
+    cpu_x86_load_seg_cache(env, R_GS, 0, 0, 0, 0);
+}
+
 void sev_es_set_reset_state(CPUState *cpu)
 {
     X86CPU *x86;
     CPUX86State *env;
     uint32_t reset_cs, reset_ip;
-    SevCommonState *sev_common = SEV_COMMON(MACHINE(qdev_get_machine())->cgs);
+    MachineState *ms = MACHINE(qdev_get_machine());
+    SevCommonState *sev_common = SEV_COMMON(ms->cgs);
     SevInfoBlock *info;
 
     /* Only update if we have valid reset information */
     if (!sev_common || !sev_common->reset_data_valid) {
+        return;
+    }
+
+    if (ms->svsm) {
+        sev_svsm_set_reset_state(cpu);
         return;
     }
 
@@ -1760,9 +2038,10 @@ int sev_es_save_reset_state(void *flash_ptr, uint64_t flash_size)
 {
     CPUState *cpu;
     SevInfoBlock *info;
-    SevCommonState *sev_common = SEV_COMMON(MACHINE(qdev_get_machine())->cgs);
+    MachineState *ms = MACHINE(qdev_get_machine());
+    SevCommonState *sev_common = SEV_COMMON(ms->cgs);
 
-    if (!sev_es_enabled()) {
+    if (!sev_es_enabled() || ms->svsm) {
         return 0;
     }
 
@@ -1784,6 +2063,102 @@ int sev_es_save_reset_state(void *flash_ptr, uint64_t flash_size)
     }
 
     return 0;
+}
+
+static int sev_svsm_save_reset_state(void *flash_ptr, uint64_t flash_size)
+{
+    MachineState *ms = MACHINE(qdev_get_machine());
+    SevCommonState *sev_common = SEV_COMMON(ms->cgs);
+    SvsmInfoBlock *info;
+    CPUState *cpu;
+
+    if (!pc_system_svsm_table_find(SVSM_INFO_GUID, (uint8_t **)&info, NULL)) {
+        error_report("SVSM information block GUID not found in SVSM binary");
+        exit(1);
+    }
+
+    if (!info->bsp_rip) {
+        error_report("SVSM BSP reset address is zero");
+        exit(1);
+    }
+
+    sev_common->reset_info = info;
+    sev_common->reset_data_valid = true;
+
+    CPU_FOREACH(cpu) {
+        sev_svsm_set_reset_state(cpu);
+    }
+
+    return 0;
+}
+
+void sev_snp_svsm_init(MachineState *ms)
+{
+    SevCommonState *sev_common = SEV_COMMON(ms->cgs);
+    SvsmInfoBlock *info;
+    char *svsm_filename;
+    MemoryRegion *svsm;
+    int svsm_size;
+    int fd, ret;
+    uint8_t *svsm_data, *data;
+
+    if (!ms->svsm) {
+        return;
+    }
+
+    if (!sev_snp_enabled()) {
+        error_report("qemu: SVSM is only supported under SEV-SNP");
+        exit(1);
+    }
+
+    assert(sev_check_state(sev_common, SEV_STATE_LAUNCH_UPDATE));
+
+    svsm_filename = qemu_find_file(QEMU_FILE_TYPE_BIOS, ms->svsm);
+    if (!svsm_filename) {
+        error_report("qemu: could not find SVSM '%s'", ms->svsm);
+        exit(1);
+    }
+
+    svsm_size = get_image_size(svsm_filename);
+
+    svsm_data = g_malloc(svsm_size);
+    fd = open(svsm_filename, O_RDONLY | O_BINARY);
+    if (fd == -1) {
+        error_report("qemu: could not open SVSM '%s': %s", svsm_filename, strerror(errno));
+        exit(1);
+    }
+    ret = read(fd, svsm_data, svsm_size);
+    close(fd);
+    if (ret != svsm_size) {
+        error_report("qemu: read error SVSM '%s': %d (expected %d)", svsm_filename, ret, svsm_size);
+        exit(1);
+    }
+
+    pc_system_parse_svsm_file(svsm_data, svsm_size);
+    if (!pc_system_svsm_table_find(SVSM_INFO_GUID, (uint8_t **)&info, NULL)) {
+        error_report("qemu: SVSM information block GUID not found in SVSM binary");
+        exit(1);
+    }
+    if (!info->svsm_gpa) {
+        error_report("qemu: SVSM GPA is zero");
+        exit(1);
+    }
+
+    svsm = g_malloc(sizeof(*svsm));
+    memory_region_init_ram(svsm, NULL, "svsm.ram", info->svsm_mem, &error_fatal);
+    memory_region_add_subregion(get_system_memory(), info->svsm_gpa, svsm);
+
+    data = memory_region_get_ram_ptr(svsm);
+    memcpy(data, svsm_data, svsm_size);
+
+    sev_svsm_save_reset_state(svsm_data, svsm_size);
+
+    ret = sev_snp_launch_update(SEV_SNP_GUEST(sev_common), info->svsm_gpa,
+                                data, svsm_size, KVM_SEV_SNP_PAGE_TYPE_NORMAL, VMPL0);
+    if (ret < 0) {
+        error_report("qemu: failed to encrypt SVSM binary");
+        exit(1);
+    }
 }
 
 static const QemuUUID sev_hash_table_header_guid = {
@@ -1887,14 +2262,14 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     ht->kernel.len = sizeof(ht->kernel);
     memcpy(ht->kernel.hash, kernel_hash, sizeof(ht->kernel.hash));
 
-    /* When calling sev_encrypt_flash, the length has to be 16 byte aligned */
+    /* When calling sev_encrypt_data, the length has to be 16 byte aligned */
     aligned_len = ROUND_UP(ht->len, 16);
     if (aligned_len != ht->len) {
         /* zero the excess data so the measurement can be reliably calculated */
         memset(ht->padding, 0, aligned_len - ht->len);
     }
 
-    if (sev_encrypt_flash(area->base, (uint8_t *)ht, aligned_len, errp) < 0) {
+    if (sev_encrypt_data(area->base, (uint8_t *)ht, aligned_len, errp) < 0) {
         return false;
     }
 

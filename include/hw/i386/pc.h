@@ -156,7 +156,10 @@ typedef enum {
     SEV_DESC_TYPE_SNP_SECRETS,
     /* The section contains address that can be used as a CPUID page */
     SEV_DESC_TYPE_CPUID,
-
+    /* The section contains the address of the SVSM calling area */
+    SEV_DESC_TYPE_SVSM_CAA,
+    /* The section contains the BIOS/OVMF BSP VMSA */
+    SEV_DESC_TYPE_SVSM_BIOS_BSP,
 } ovmf_sev_metadata_desc_type;
 
 typedef enum {

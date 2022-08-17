@@ -91,6 +91,7 @@
 #include "e820_memory_layout.h"
 #include "fw_cfg.h"
 #include "trace.h"
+#include "sysemu/sev.h"
 #include CONFIG_DEVICES
 
 GlobalProperty pc_compat_6_1[] = {
@@ -893,6 +894,9 @@ void pc_memory_init(PCMachineState *pcms,
         memory_region_add_subregion(system_memory, machine->device_memory->base,
                                     &machine->device_memory->mr);
     }
+
+    /* Initialize the SVSM */
+    sev_snp_svsm_init(MACHINE(pcms));
 
     /* Initialize PC system firmware */
     pc_system_firmware_init(pcms, rom_memory);

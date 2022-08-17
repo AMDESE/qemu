@@ -25,4 +25,6 @@ int sev_inject_launch_secret(const char *hdr, const char *secret,
 int sev_es_save_reset_state(void *flash_ptr, uint64_t flash_size);
 void sev_es_set_reset_state(CPUState *cpu);
 
+void sev_snp_svsm_init(MachineState *ms);
+
 #endif

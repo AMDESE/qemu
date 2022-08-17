@@ -832,6 +832,8 @@
 #             SNP_LAUNCH_FINISH command in the SEV-SNP firmware ABI
 #             (default: all-zero)
 #
+# @svsm: file name for the SVSM image
+#
 # Since: 6.2
 ##
 { 'struct': 'SevSnpGuestProperties',
@@ -843,7 +845,8 @@
             '*id-block': 'str',
             '*id-auth': 'str',
             '*auth-key-enabled': 'bool',
-            '*host-data': 'str' } }
+            '*host-data': 'str',
+            '*svsm': 'str' } }
 
 ##
 # @ObjectType:
