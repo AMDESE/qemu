@@ -1946,6 +1946,9 @@ static void sev_svsm_set_vmpl1_vmsa(CPUX86State *env)
     vmpl1_vmsa->g_pat  = env->pat;
     vmpl1_vmsa->rdx    = env->cpuid_version;
     vmpl1_vmsa->xcr0   = env->xcr0;
+
+    vmpl1_vmsa->vmpl         = VMPL1;
+    vmpl1_vmsa->sev_features = VMPL1_SEV_FEATURES;
 }
 
 static void sev_svsm_set_reset_state(CPUState *cpu)

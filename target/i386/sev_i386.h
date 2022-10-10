@@ -31,6 +31,11 @@
 #define SEV_SNP_POLICY_SMT      0x10000
 #define SEV_SNP_POLICY_DBG      0x80000
 
+/* SEV feature SNPActive */
+#define SEV_FEAT_SNP_ACTIVE     (1 << 0)
+
+#define VMPL1_SEV_FEATURES      SEV_FEAT_SNP_ACTIVE
+
 typedef struct SevKernelLoaderContext {
     char *setup_data;
     size_t setup_size;
