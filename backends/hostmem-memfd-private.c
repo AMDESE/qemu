@@ -44,14 +44,13 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
         return;
     }
 
-    fd = qemu_memfd_create("memory-backend-memfd-shared", backend->size, false,
+    fd = qemu_memfd_create("memory-backend-memfd-shared", backend->size,
                            m->hugetlb, m->hugetlbsize, 0, errp);
     if (fd == -1) {
         return;
     }
 
-    priv_fd = qemu_memfd_create("memory-backend-memfd-private", backend->size,
-                                true, m->hugetlb, m->hugetlbsize, 0, errp);
+    priv_fd = qemu_memfd_restricted(backend->size, 0, errp);
     if (priv_fd == -1) {
         return;
     }
@@ -64,7 +63,7 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
     g_free(name);
 
     fallocate(priv_fd, 0, 0, backend->size);
-    memory_region_set_private_fd(&backend->mr, priv_fd);
+    memory_region_set_restricted_fd(&backend->mr, priv_fd);
 }
 
 static bool
