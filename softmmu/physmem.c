@@ -3869,8 +3869,7 @@ bool ram_block_discard_is_required(void)
 int ram_block_convert_range(RAMBlock *rb, uint64_t start, size_t length,
                             bool shared_to_private)
 {
-    int ret;
-    int fd_from, fd_to;
+    int fd;
 
     if (!rb || rb->restricted_fd <= 0) {
         return -1;
@@ -3886,21 +3885,10 @@ int ram_block_convert_range(RAMBlock *rb, uint64_t start, size_t length,
     }
 
     if (shared_to_private) {
-        fd_from = rb->fd;
-        fd_to = rb->restricted_fd;
+        fd = rb->fd;
     } else {
-        fd_from = rb->restricted_fd;
-        fd_to = rb->fd;
+        fd = rb->restricted_fd;
     }
 
-    ret = ram_block_discard_range_fd(rb, start, length, fd_from);
-    if (ret) {
-        return ret;
-    }
-
-    if (fd_to > 0) {
-        return fallocate(fd_to, 0, start, length);
-    }
-
-    return 0;
+    return ram_block_discard_range_fd(rb, start, length, fd);
 }
