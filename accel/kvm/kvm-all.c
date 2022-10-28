@@ -2855,6 +2855,12 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private, bool p
     }
 
     ret = kvm_encrypt_reg_region(start, size, shared_to_private);
+    if (ret) {
+        warn_report("Failed to update attributes for range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
+                    start, size, shared_to_private, ret);
+        goto out;
+    }
+
 
     if (object_dynamic_cast(section.mr->owner,
                             TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
@@ -2867,8 +2873,10 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private, bool p
          * unnecessary pages.
          */
         if (!preserve) {
-            ret = ram_block_convert_range(rb, offset, size, shared_to_private, preserve);
+            ret = ram_block_convert_range(rb, offset, size, shared_to_private);
             if (ret) {
+                warn_report("Failed to convert range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
+                            start, size, shared_to_private, ret);
                 goto out;
             }
         }
