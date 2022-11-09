@@ -2911,11 +2911,11 @@ static void kvm_eat_signals(CPUState *cpu)
     } while (sigismember(&chkset, SIG_IPI));
 }
 
-static int kvm_encrypt_mem(hwaddr start, hwaddr size, bool shared_to_private)
+int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
 {
     int r;
     struct kvm_memory_attributes  attr;
-    attr.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
+    attr.attributes = reg_region ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 
     attr.address = start;
     attr.size = size;
@@ -2943,7 +2943,7 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
         return -1;
     }
 
-    ret = kvm_encrypt_mem(start, size, shared_to_private);
+    ret = kvm_encrypt_reg_region(start, size, shared_to_private);
 
     if (object_dynamic_cast(section.mr->owner,
                             TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
