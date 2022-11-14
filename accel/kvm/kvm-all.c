@@ -35,6 +35,7 @@
 #include "qemu/bswap.h"
 #include "exec/memory.h"
 #include "exec/ram_addr.h"
+#include "exec/confidential-guest-support.h"
 #include "qemu/event_notifier.h"
 #include "qemu/main-loop.h"
 #include "trace.h"
@@ -2930,6 +2931,11 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
     return r;
 }
 
+#define DISCARD_BOTH 0
+#define DISCARD_SHARED 1
+#define DISCARD_PRIVATE 2
+#define DISCARD_NONE 3
+
 int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
 {
     MemoryRegionSection section;
@@ -2948,6 +2954,7 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
 
     if (object_dynamic_cast(section.mr->owner,
                             TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
+        ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
         addr = memory_region_get_ram_ptr(section.mr) +
             section.offset_within_region;
         rb = qemu_ram_block_from_host(addr, false, &offset);
@@ -2956,12 +2963,23 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
          * operation on underlying file descriptor is only for releasing
          * unnecessary pages.
          */
-        (void)ram_block_convert_range(rb, offset, size, shared_to_private);
+        if ((shared_to_private &&
+             (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_SHARED)) ||
+            (!shared_to_private &&
+             (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_PRIVATE))) {
+            ret = ram_block_convert_range(rb, offset, size, shared_to_private);
+            if (ret) {
+                warn_report("Failed to convert range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
+                            start, size, shared_to_private, ret);
+                goto out;
+            }
+        }
     } else {
         warn_report("Unkonwn start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d",
                     start, size, shared_to_private);
     }
 
+out:
     memory_region_unref(section.mr);
     return ret;
 }
