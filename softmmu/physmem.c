@@ -51,6 +51,7 @@
 #include "sysemu/hw_accel.h"
 #include "sysemu/xen-mapcache.h"
 #include "trace/trace-root.h"
+#include "exec/confidential-guest-support.h"
 
 #ifdef CONFIG_FALLOCATE_PUNCH_HOLE
 #include <linux/falloc.h>

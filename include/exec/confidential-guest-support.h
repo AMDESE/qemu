@@ -52,6 +52,7 @@ struct ConfidentialGuestSupport {
      */
     bool ready;
     bool use_private_memslots;
+    int discard;
 };
 
 typedef struct ConfidentialGuestSupportClass {

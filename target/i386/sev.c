@@ -64,6 +64,7 @@ struct SevCommonState {
     uint32_t cbitpos;
     uint32_t reduced_phys_bits;
     bool upm_mode;
+    char *discard;
 
     /* runtime state */
     uint8_t api_major;
@@ -370,6 +371,18 @@ static void sev_common_set_upm_mode(Object *obj, bool value, Error **errp)
     SEV_COMMON(obj)->upm_mode = value;
 }
 
+static char *
+sev_common_get_discard(Object *obj, Error **errp)
+{
+    return g_strdup(SEV_COMMON(obj)->discard);
+}
+
+static void
+sev_common_set_discard(Object *obj, const char *value, Error **errp)
+{
+    SEV_COMMON(obj)->discard = g_strdup(value);
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -383,6 +396,9 @@ sev_common_class_init(ObjectClass *oc, void *data)
                                    sev_common_set_upm_mode);
     object_class_property_set_description(oc, "upm-mode",
             "enable Unmapped Private Memory mode");
+    object_class_property_add_str(oc, "discard",
+                                  sev_common_get_discard,
+                                  sev_common_set_discard);
 }
 
 static void
@@ -1718,6 +1734,16 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         }
         g_warning("UPM mode enabled");
         cgs->use_private_memslots = true;
+
+        if (!g_strcmp0(sev_common->discard, "both")) {
+            cgs->discard = 0;
+        } else if (!g_strcmp0(sev_common->discard, "shared")) {
+            cgs->discard = 1;
+        } else if (!g_strcmp0(sev_common->discard, "private")) {
+            cgs->discard = 2;
+        } else if (!g_strcmp0(sev_common->discard, "none")) {
+            cgs->discard = 3;
+        }
     }
 
     if (sev_snp_enabled()) {

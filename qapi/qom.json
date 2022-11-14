@@ -838,13 +838,18 @@
 #
 # @upm-mode: configure Unmapped Private Memory mode
 #
+# @discard: configure how discarding is handled for memory after
+#           shared<->private conversions: options are "both" (default),
+#           "shared", "private", or "none".
+#
 # Since: 2.12
 ##
 { 'struct': 'SevCommonProperties',
   'data': { '*sev-device': 'str',
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
-            '*upm-mode': 'bool' } }
+            '*upm-mode': 'bool',
+            '*discard': 'str' } }
 
 ##
 # @SevGuestProperties:
