@@ -846,13 +846,18 @@
 #                 designated guest firmware page for measured boot
 #                 with -kernel (default: false) (since 6.2)
 #
+# @discard: configure how discarding is handled for memory after
+#           shared<->private conversions: options are "both" (default),
+#           "shared", "private", or "none".
+#
 # Since: 2.12
 ##
 { 'struct': 'SevCommonProperties',
   'data': { '*sev-device': 'str',
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
-            '*kernel-hashes': 'bool' } }
+            '*kernel-hashes': 'bool',
+            '*discard': 'str' } }
 
 ##
 # @SevGuestProperties:

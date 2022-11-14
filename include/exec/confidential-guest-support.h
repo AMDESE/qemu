@@ -51,6 +51,7 @@ struct ConfidentialGuestSupport {
      * so 'ready' is not set, we'll abort.
      */
     bool ready;
+    int discard;
 };
 
 typedef struct ConfidentialGuestSupportClass {

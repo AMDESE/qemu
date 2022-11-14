@@ -93,6 +93,7 @@ struct SevCommonState {
     uint32_t cbitpos;
     uint32_t reduced_phys_bits;
     bool kernel_hashes;
+    char *discard;
 
     /* runtime state */
     uint8_t api_major;
@@ -384,6 +385,18 @@ static void sev_common_set_kernel_hashes(Object *obj, bool value, Error **errp)
     SEV_COMMON(obj)->kernel_hashes = value;
 }
 
+static char *
+sev_common_get_discard(Object *obj, Error **errp)
+{
+    return g_strdup(SEV_COMMON(obj)->discard);
+}
+
+static void
+sev_common_set_discard(Object *obj, const char *value, Error **errp)
+{
+    SEV_COMMON(obj)->discard = g_strdup(value);
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -397,6 +410,9 @@ sev_common_class_init(ObjectClass *oc, void *data)
                                    sev_common_set_kernel_hashes);
     object_class_property_set_description(oc, "kernel-hashes",
             "add kernel hashes to guest firmware for measured Linux boot");
+    object_class_property_add_str(oc, "discard",
+                                  sev_common_get_discard,
+                                  sev_common_set_discard);
 }
 
 static void
@@ -1743,7 +1759,18 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 
         /* Disable SMM for vm-type=protected */
         x86ms->smm = ON_OFF_AUTO_OFF;
-        g_warning("Restricted memory (UPM) enabled, disabling SMM.");
+
+        if (!g_strcmp0(sev_common->discard, "both")) {
+            cgs->discard = 0;
+        } else if (!g_strcmp0(sev_common->discard, "shared")) {
+            cgs->discard = 1;
+        } else if (!g_strcmp0(sev_common->discard, "private")) {
+            cgs->discard = 2;
+        } else if (!g_strcmp0(sev_common->discard, "none")) {
+            cgs->discard = 3;
+        }
+
+        g_warning("Restricted memory (UPM) enabled, disabling SMM. Memory discard mode: %s", sev_common->discard);
     }
 
     if (sev_snp_enabled()) {
