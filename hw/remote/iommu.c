@@ -37,7 +37,7 @@
  */
 
 static AddressSpace *remote_iommu_find_add_as(PCIBus *pci_bus, void *opaque,
-                                              int devfn)
+                                              int devfn, PCIDevice *dev)
 {
     RemoteIommu *iommu = opaque;
     RemoteIommuElem *elem = NULL;

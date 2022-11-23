@@ -105,7 +105,8 @@ static inline void sabre_clear_request(SabreState *s, unsigned int irq_num)
     s->irq_request = NO_IRQ_REQUEST;
 }
 
-static AddressSpace *sabre_pci_dma_iommu(PCIBus *bus, void *opaque, int devfn)
+static AddressSpace *sabre_pci_dma_iommu(PCIBus *bus, void *opaque,
+                                         int devfn, PCIDevice *dev)
 {
     IOMMUState *is = opaque;
 

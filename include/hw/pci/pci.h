@@ -369,11 +369,12 @@ void pci_device_deassert_intx(PCIDevice *dev);
 
 typedef struct PCIIOMMUOps PCIIOMMUOps;
 struct PCIIOMMUOps {
-    AddressSpace * (*get_address_space)(PCIBus *bus,
-                                void *opaque, int32_t devfn);
-    int (*set_iommu_device)(PCIBus *bus, void *opaque,
-                            int32_t devfn, IOMMUFDDevice *idev);
-    void (*unset_iommu_device)(PCIBus *bus, void *opaque, int32_t devfn);
+    AddressSpace * (*get_address_space)(PCIBus *bus, void *opaque,
+                                       int devfn, PCIDevice *dev);
+    int (*set_iommu_device)(PCIBus *bus, void *opaque, int devfn,
+                            PCIDevice *dev, IOMMUFDDevice *idev);
+    void (*unset_iommu_device)(PCIBus *bus, void *opaque,
+                               int devfn, PCIDevice *dev);
 };
 
 AddressSpace *pci_device_iommu_address_space(PCIDevice *dev);

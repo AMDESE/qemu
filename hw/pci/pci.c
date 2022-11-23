@@ -2741,7 +2741,7 @@ AddressSpace *pci_device_iommu_address_space(PCIDevice *dev)
     if (!pci_bus_bypass_iommu(bus) && iommu_bus &&
         iommu_bus->iommu_ops && iommu_bus->iommu_ops->get_address_space) {
         return iommu_bus->iommu_ops->get_address_space(bus,
-                                           iommu_bus->iommu_opaque, devfn);
+                                           iommu_bus->iommu_opaque, devfn, dev);
     }
     return &address_space_memory;
 }
@@ -2757,7 +2757,7 @@ int pci_device_set_iommu_device(PCIDevice *dev,
     if (!pci_bus_bypass_iommu(bus) && iommu_bus &&
         iommu_bus->iommu_ops && iommu_bus->iommu_ops->set_iommu_device) {
         return iommu_bus->iommu_ops->set_iommu_device(bus,
-                              iommu_bus->iommu_opaque, devfn, idev);
+                              iommu_bus->iommu_opaque, devfn, dev, idev);
     }
     return 0;
 }
@@ -2772,7 +2772,7 @@ void pci_device_unset_iommu_device(PCIDevice *dev)
     if (!pci_bus_bypass_iommu(bus) && iommu_bus &&
         iommu_bus->iommu_ops && iommu_bus->iommu_ops->unset_iommu_device) {
         return iommu_bus->iommu_ops->unset_iommu_device(bus,
-                              iommu_bus->iommu_opaque, devfn);
+                              iommu_bus->iommu_opaque, devfn, dev);
     }
 }
 

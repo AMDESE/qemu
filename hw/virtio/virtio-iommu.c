@@ -379,7 +379,7 @@ static void virtio_iommu_put_domain(gpointer data)
 }
 
 static AddressSpace *virtio_iommu_find_add_as(PCIBus *bus, void *opaque,
-                                              int devfn)
+                                              int devfn, PCIDevice *dev)
 {
     VirtIOIOMMU *s = opaque;
     IOMMUPciBus *sbus = g_hash_table_lookup(s->as_by_busptr, bus);
