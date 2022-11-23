@@ -31,8 +31,11 @@
 #endif
 #include "sysemu/sysemu.h"
 #include "hw/vfio/vfio-container-base.h"
+#include "sysemu/iommufd_device.h"
 
 #define VFIO_MSG_PREFIX "vfio %s: "
+
+#define TYPE_VFIO_IOMMU_DEVICE "qemu:vfio-iommu-device"
 
 extern const MemoryListener vfio_memory_listener;
 
@@ -126,6 +129,7 @@ typedef struct VFIODevice {
     unsigned int num_regions;
     unsigned int flags;
     VFIOMigration *migration;
+    IOMMUFDDevice idev;
     Error *migration_blocker;
     OnOffAuto pre_copy_dirty_page_tracking;
     bool dirty_pages_supported;

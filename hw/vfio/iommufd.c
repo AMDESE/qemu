@@ -373,6 +373,7 @@ static int iommufd_attach_device(char *name, VFIODevice *vbasedev,
     VFIOContainer *bcontainer;
     VFIOIOMMUFDContainer *container;
     VFIOAddressSpace *space;
+    IOMMUFDDevice *idev = &vbasedev->idev;
     struct vfio_device_info dev_info = { .argsz = sizeof(dev_info) };
     int ret, devfd;
     uint32_t ioas_id;
@@ -483,6 +484,9 @@ found_container:
     vbasedev->reset_works = !!(dev_info.flags & VFIO_DEVICE_FLAGS_RESET);
     vbasedev->container = bcontainer;
 
+    iommufd_device_init(idev, sizeof(*idev), TYPE_VFIO_IOMMU_DEVICE,
+                        container->be, vbasedev->devid,
+                        vbasedev->hwpt->hwpt_id);
     trace_vfio_iommufd_device_info(vbasedev->name, devfd, vbasedev->num_irqs,
                                    vbasedev->num_regions, vbasedev->flags);
     return 0;
@@ -541,6 +545,55 @@ static void vfio_iommu_backend_iommufd_ops_class_init(ObjectClass *oc,
     ops->attach_device = iommufd_attach_device;
     ops->detach_device = iommufd_detach_device;
 }
+
+static int vfio_iommu_device_attach_hwpt(IOMMUFDDevice *idev,
+                                         uint32_t hwpt_id)
+{
+    VFIODevice *vbasedev = container_of(idev, VFIODevice, idev);
+    Error *err = NULL;
+    int ret;
+
+    ret = __vfio_device_attach_hwpt(vbasedev, hwpt_id, &err);
+    if (err) {
+        error_report_err(err);
+    }
+    return ret;
+}
+
+static int vfio_iommu_device_detach_hwpt(IOMMUFDDevice *idev)
+{
+    VFIODevice *vbasedev = container_of(idev, VFIODevice, idev);
+    Error *err = NULL;
+    int ret;
+
+    ret = __vfio_device_detach_hwpt(vbasedev, &err);
+    if (err) {
+        error_report_err(err);
+    }
+    return ret;
+}
+
+static void vfio_iommu_device_class_init(ObjectClass *klass,
+                                         void *data)
+{
+    IOMMUFDDeviceClass *idevc = IOMMU_DEVICE_CLASS(klass);
+
+    idevc->attach_hwpt = vfio_iommu_device_attach_hwpt;
+    idevc->detach_hwpt = vfio_iommu_device_detach_hwpt;
+}
+
+static const TypeInfo vfio_iommu_device_info = {
+    .parent = TYPE_IOMMUFD_DEVICE,
+    .name = TYPE_VFIO_IOMMU_DEVICE,
+    .class_init = vfio_iommu_device_class_init,
+};
+
+static void vfio_iommufd_register_types(void)
+{
+    type_register_static(&vfio_iommu_device_info);
+}
+
+type_init(vfio_iommufd_register_types)
 
 static const TypeInfo vfio_iommu_backend_iommufd_ops_type = {
     .name = TYPE_VFIO_IOMMU_BACKEND_IOMMUFD_OPS,
