@@ -2846,26 +2846,33 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
     void *addr;
     RAMBlock *rb;
     ram_addr_t offset;
+    int ret;
 
     section = memory_region_find(get_system_memory(), start, size);
     if (!section.mr) {
         return -1;
     }
 
+    ret = kvm_encrypt_mem(start, size, shared_to_private);
+
     if (object_dynamic_cast(section.mr->owner,
                             TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
         addr = memory_region_get_ram_ptr(section.mr) +
             section.offset_within_region;
         rb = qemu_ram_block_from_host(addr, false, &offset);
-        ram_block_convert_range(rb, offset, size, shared_to_private);
+        /*
+         * With KVM_MEMORY_(UN)ENCRYPT_REG_REGION by kvm_encrypt_mem(),
+         * operation on underlying file descriptor is only for releasing
+         * unnecessary pages.
+         */
+        (void)ram_block_convert_range(rb, offset, size, shared_to_private);
     } else {
         warn_report("Unkonwn start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d",
                     start, size, shared_to_private);
     }
 
     memory_region_unref(section.mr);
-
-    return kvm_encrypt_mem(start, size, shared_to_private);
+    return ret;
 }
 
 int kvm_cpu_exec(CPUState *cpu)
