@@ -3369,9 +3369,17 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
 
     vfio_bars_register(vdev);
 
+    if (vbasedev->iommufd) {
+        ret = pci_device_set_iommu_device(pdev, &vbasedev->idev);
+        if (ret) {
+            error_setg(errp, "Failed to set iommu_device");
+            goto out_teardown;
+        }
+    }
+
     ret = vfio_add_capabilities(vdev, errp);
     if (ret) {
-        goto out_teardown;
+        goto out_unset_idev;
     }
 
     if (vdev->vga) {
@@ -3390,7 +3398,7 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
             error_setg(errp,
                        "cannot support IGD OpRegion feature on hotplugged "
                        "device");
-            goto out_teardown;
+            goto out_unset_idev;
         }
 
         ret = vfio_get_dev_region_info(vbasedev,
@@ -3399,13 +3407,13 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
         if (ret) {
             error_setg_errno(errp, -ret,
                              "does not support requested IGD OpRegion feature");
-            goto out_teardown;
+            goto out_unset_idev;
         }
 
         ret = vfio_pci_igd_opregion_init(vdev, opregion, errp);
         g_free(opregion);
         if (ret) {
-            goto out_teardown;
+            goto out_unset_idev;
         }
     }
 
@@ -3490,6 +3498,10 @@ out_deregister:
     }
     if (vdev->intx.mmap_timer) {
         timer_free(vdev->intx.mmap_timer);
+    }
+out_unset_idev:
+    if (vbasedev->iommufd) {
+        pci_device_unset_iommu_device(pdev);
     }
 out_teardown:
     vfio_teardown_msi(vdev);
