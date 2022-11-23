@@ -656,7 +656,7 @@ static const MemoryRegionOps designware_pci_mmio_ops = {
 };
 
 static AddressSpace *designware_pcie_host_set_iommu(PCIBus *bus, void *opaque,
-                                                    int devfn)
+                                                    int devfn, PCIDevice *dev)
 {
     DesignwarePCIEHost *s = DESIGNWARE_PCIE_HOST(opaque);
 

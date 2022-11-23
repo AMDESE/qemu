@@ -62,6 +62,7 @@ typedef union VTD_IR_TableEntry VTD_IR_TableEntry;
 typedef union VTD_IR_MSIAddress VTD_IR_MSIAddress;
 typedef struct VTDPASIDDirEntry VTDPASIDDirEntry;
 typedef struct VTDPASIDEntry VTDPASIDEntry;
+typedef struct VTDIOMMUFDDevice VTDIOMMUFDDevice;
 
 /* Context-Entry */
 struct VTDContextEntry {
@@ -110,6 +111,13 @@ struct VTDAddressSpace {
     /* Superset of notifier flags that this address space has */
     IOMMUNotifierFlag notifier_flags;
     IOVATree *iova_tree;          /* Traces mapped IOVA ranges */
+};
+
+struct VTDIOMMUFDDevice {
+    PCIBus *bus;
+    uint8_t devfn;
+    IOMMUFDDevice *idev;
+    IntelIOMMUState *iommu_state;
 };
 
 struct VTDIOTLBEntry {
@@ -253,6 +261,8 @@ struct IntelIOMMUState {
     VTDAddressSpace *vtd_as_cache[VTD_PCI_BUS_MAX]; /* VTD address space cache */
     /* list of registered notifiers */
     QLIST_HEAD(, VTDAddressSpace) vtd_as_with_notifiers;
+
+    GHashTable *vtd_iommufd_dev;             /* VTDIOMMUFDDevice */
 
     /* interrupt remapping */
     bool intr_enabled;              /* Whether guest enabled IR */
