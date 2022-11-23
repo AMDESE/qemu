@@ -237,6 +237,13 @@ static gboolean vtd_as_equal(gconstpointer v1, gconstpointer v2)
            (key1->pasid == key2->pasid);
 }
 
+static gboolean vtd_as_idev_equal(gconstpointer v1, gconstpointer v2)
+{
+    const struct vtd_as_key *key1 = v1;
+    const struct vtd_as_key *key2 = v2;
+
+    return (key1->bus == key2->bus) && (key1->devfn == key2->devfn);
+}
 /*
  * Note that we use pointer to PCIBus as the key, so hashing/shifting
  * based on the pointer value is intended. Note that we deal with
@@ -3741,6 +3748,66 @@ VTDAddressSpace *vtd_find_add_as(IntelIOMMUState *s, PCIBus *bus,
     return vtd_dev_as;
 }
 
+static int vtd_dev_set_iommu_device(PCIBus *bus, void *opaque,
+                                    int devfn, IOMMUFDDevice *idev)
+{
+    IntelIOMMUState *s = opaque;
+    VTDIOMMUFDDevice *vtd_idev;
+    struct vtd_as_key key = {
+        .bus = bus,
+        .devfn = devfn,
+    };
+    struct vtd_as_key *new_key;
+
+    assert(0 <= devfn && devfn < PCI_DEVFN_MAX);
+
+    vtd_iommu_lock(s);
+
+    vtd_idev = g_hash_table_lookup(s->vtd_iommufd_dev, &key);
+
+    assert(!vtd_idev);
+
+    new_key = g_malloc(sizeof(*new_key));
+    new_key->bus = bus;
+    new_key->devfn = devfn;
+
+    vtd_idev = g_malloc0(sizeof(VTDIOMMUFDDevice));
+    vtd_idev->bus = bus;
+    vtd_idev->devfn = (uint8_t)devfn;
+    vtd_idev->iommu_state = s;
+    vtd_idev->idev = idev;
+
+    g_hash_table_insert(s->vtd_iommufd_dev, new_key, vtd_idev);
+
+    vtd_iommu_unlock(s);
+
+    return 0;
+}
+
+static void vtd_dev_unset_iommu_device(PCIBus *bus, void *opaque, int devfn)
+{
+    IntelIOMMUState *s = opaque;
+    VTDIOMMUFDDevice *vtd_idev;
+    struct vtd_as_key key = {
+        .bus = bus,
+        .devfn = devfn,
+    };
+
+    assert(0 <= devfn && devfn < PCI_DEVFN_MAX);
+
+    vtd_iommu_lock(s);
+
+    vtd_idev = g_hash_table_lookup(s->vtd_iommufd_dev, &key);
+    if (!vtd_idev) {
+        vtd_iommu_unlock(s);
+        return;
+    }
+
+    g_hash_table_remove(s->vtd_iommufd_dev, &key);
+
+    vtd_iommu_unlock(s);
+}
+
 /* Unmap the whole range in the notifier's scope. */
 static void vtd_address_space_unmap(VTDAddressSpace *as, IOMMUNotifier *n)
 {
@@ -4036,6 +4103,8 @@ static AddressSpace *vtd_host_dma_iommu(PCIBus *bus, void *opaque, int devfn)
 
 static PCIIOMMUOps vtd_iommu_ops = {
     .get_address_space = vtd_host_dma_iommu,
+    .set_iommu_device = vtd_dev_set_iommu_device,
+    .unset_iommu_device = vtd_dev_unset_iommu_device,
 };
 
 static bool vtd_decide_config(IntelIOMMUState *s, Error **errp)
@@ -4158,6 +4227,8 @@ static void vtd_realize(DeviceState *dev, Error **errp)
     s->iotlb = g_hash_table_new_full(vtd_iotlb_hash, vtd_iotlb_equal,
                                      g_free, g_free);
     s->vtd_address_spaces = g_hash_table_new_full(vtd_as_hash, vtd_as_equal,
+                                      g_free, g_free);
+    s->vtd_iommufd_dev = g_hash_table_new_full(vtd_as_hash, vtd_as_idev_equal,
                                       g_free, g_free);
     vtd_init(s);
     sysbus_mmio_map(SYS_BUS_DEVICE(s), 0, Q35_HOST_BRIDGE_IOMMU_ADDR);
