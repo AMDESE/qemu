@@ -191,10 +191,15 @@
 #define VTD_ECAP_PT                 (1ULL << 6)
 #define VTD_ECAP_SC                 (1ULL << 7)
 #define VTD_ECAP_MHMV               (15ULL << 20)
+#define VTD_ECAP_ERS                (1ULL << 30)
 #define VTD_ECAP_SRS                (1ULL << 31)
+#define VTD_ECAP_EAFS               (1ULL << 34)
 #define VTD_ECAP_PASID              (1ULL << 40)
 #define VTD_ECAP_SMTS               (1ULL << 43)
 #define VTD_ECAP_SLTS               (1ULL << 46)
+
+#define VTD_ECAP_MASK               (VTD_ECAP_ERS | VTD_ECAP_SRS | \
+                                     VTD_ECAP_EAFS)
 
 /* CAP_REG */
 /* (offset >> 4) << 24 */
