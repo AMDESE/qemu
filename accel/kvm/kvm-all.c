@@ -2914,16 +2914,16 @@ static void kvm_eat_signals(CPUState *cpu)
 static int kvm_encrypt_mem(hwaddr start, hwaddr size, bool shared_to_private)
 {
     int r;
-    struct kvm_enc_region range;
-    int ioctl = shared_to_private ? KVM_MEMORY_ENCRYPT_REG_REGION
-                                  : KVM_MEMORY_ENCRYPT_UNREG_REGION;
+    struct kvm_memory_attributes  attr;
+    attr.attributes = shared_to_private ? KVM_MEMORY_ATTRIBUTE_PRIVATE : 0;
 
-    range.addr = start;
-    range.size = size;
+    attr.address = start;
+    attr.size = size;
+    attr.flags = 0;
 
-    r = kvm_vm_ioctl(kvm_state, ioctl, &range);
-    if (r) {
-        warn_report("%s: failed to register region (0x%lx+%#zx) error '%s'",
+    r = kvm_vm_ioctl(kvm_state, KVM_SET_MEMORY_ATTRIBUTES, &attr);
+    if (r || attr.size != 0) {
+        warn_report("%s: failed to set memory attr (0x%lx+%#zx) error '%s'",
                      __func__, start, size, strerror(errno));
     }
     return r;
