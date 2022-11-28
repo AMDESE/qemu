@@ -30,6 +30,7 @@
 #include "qapi/error.h"
 #include "qemu/memfd.h"
 #include "qemu/host-utils.h"
+#include "qemu/mmap-alloc.h"
 
 #include <sys/syscall.h>
 #include <asm/unistd.h>
@@ -62,6 +63,7 @@ int qemu_memfd_restricted(size_t size, unsigned int flags, Error **errp)
 {
 #ifdef CONFIG_LINUX
     int mfd = -1;
+    size_t page_size;
 
     mfd = memfd_restricted(flags);
     if (mfd < 0) {
@@ -70,9 +72,19 @@ int qemu_memfd_restricted(size_t size, unsigned int flags, Error **errp)
         return -1;
     }
 
+#if 0
     if (ftruncate(mfd, size) == -1) {
         error_setg_errno(errp, errno, "failed to resize memfd to %zu", size);
 	close(mfd);
+        return -1;
+    }
+#endif
+    page_size = qemu_fd_getpagesize(mfd);
+    if (fallocate(mfd, 0,
+                  (size > page_size) ? (size - page_size) : 0,
+                  page_size)) {
+        error_setg_errno(errp, errno, "failed to resize memfd to %zu", size);
+	    close(mfd);
         return -1;
     }
 
