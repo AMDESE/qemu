@@ -63,6 +63,8 @@ typedef union VTD_IR_MSIAddress VTD_IR_MSIAddress;
 typedef struct VTDPASIDDirEntry VTDPASIDDirEntry;
 typedef struct VTDPASIDEntry VTDPASIDEntry;
 typedef struct VTDIOMMUFDDevice VTDIOMMUFDDevice;
+typedef struct VTDPASIDCacheEntry VTDPASIDCacheEntry;
+typedef struct VTDPASIDAddressSpace VTDPASIDAddressSpace;
 
 /* Context-Entry */
 struct VTDContextEntry {
@@ -95,6 +97,25 @@ struct VTDPASIDEntry {
     uint64_t val[8];
 };
 
+struct pasid_key {
+    uint32_t pasid;
+    uint16_t sid;
+};
+
+struct VTDPASIDCacheEntry {
+    struct VTDPASIDEntry pasid_entry;
+};
+
+struct VTDPASIDAddressSpace {
+    PCIBus *bus;
+    uint8_t devfn;
+    uint32_t pasid;
+    IntelIOMMUState *iommu_state;
+    VTDContextCacheEntry context_cache_entry;
+    QLIST_ENTRY(VTDPASIDAddressSpace) next;
+    VTDPASIDCacheEntry pasid_cache_entry;
+};
+
 struct VTDAddressSpace {
     PCIBus *bus;
     uint8_t devfn;
@@ -118,6 +139,7 @@ struct VTDIOMMUFDDevice {
     uint8_t devfn;
     IOMMUFDDevice *idev;
     IntelIOMMUState *iommu_state;
+    QLIST_ENTRY(VTDIOMMUFDDevice) next;
 };
 
 struct VTDIOTLBEntry {
@@ -262,8 +284,12 @@ struct IntelIOMMUState {
 
     GHashTable *vtd_address_spaces;             /* VTD address spaces */
     VTDAddressSpace *vtd_as_cache[VTD_PCI_BUS_MAX]; /* VTD address space cache */
+    GHashTable *vtd_pasid_as;       /* VTDPASIDAddressSpace instances */
     /* list of registered notifiers */
     QLIST_HEAD(, VTDAddressSpace) vtd_as_with_notifiers;
+
+    /* list of VTDIOMMUFDDevices */
+    QLIST_HEAD(, VTDIOMMUFDDevice) vtd_idev_list;
 
     GHashTable *vtd_iommufd_dev;             /* VTDIOMMUFDDevice */
 
