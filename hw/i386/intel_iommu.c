@@ -1675,13 +1675,22 @@ static bool vtd_as_pt_enabled(VTDAddressSpace *as)
 /* Return whether the device is using IOMMU translation. */
 static bool vtd_switch_address_space(VTDAddressSpace *as)
 {
+    IntelIOMMUState *s = as->iommu_state;
+    VTDIOMMUFDDevice *vtd_idev;
+    VTDContextEntry ce;
+    VTDPASIDEntry pe;
+    int ret = 0;
     bool use_iommu, pt;
     /* Whether we need to take the BQL on our own */
     bool take_bql = !qemu_mutex_iothread_locked();
+    struct vtd_as_key key = {
+        .bus = as->bus,
+        .devfn = as->devfn,
+    };
 
     assert(as);
 
-    use_iommu = as->iommu_state->dmar_enabled && !vtd_as_pt_enabled(as);
+    use_iommu = s->dmar_enabled && !vtd_as_pt_enabled(as);
     pt = as->iommu_state->dmar_enabled && vtd_as_pt_enabled(as);
 
     trace_vtd_switch_address_space(pci_bus_num(as->bus),
@@ -1696,6 +1705,27 @@ static bool vtd_switch_address_space(VTDAddressSpace *as)
      */
     if (take_bql) {
         qemu_mutex_lock_iothread();
+    }
+
+    /* For passthrough device, we don't switch as */
+    vtd_idev = g_hash_table_lookup(s->vtd_iommufd_dev, &key);
+    if (s->root_scalable && likely(s->dmar_enabled) && vtd_idev) {
+        ret = vtd_dev_to_context_entry(s, pci_bus_num(as->bus),
+                                   as->devfn, &ce);
+        if (!ret) {
+            ret = vtd_ce_get_rid2pasid_entry(s, &ce, &pe, PCI_NO_PASID);
+            if (!ret && (VTD_PE_GET_TYPE(&pe) == VTD_SM_PASID_ENTRY_FLT)) {
+                use_iommu = false;
+            }
+        }
+        if (ret) {
+            error_report_once("%s: cannot find ctx or pe for "
+                              "(dev=%02x:%02x:%02x)",
+                              __func__, pci_bus_num(as->bus),
+                              VTD_PCI_SLOT(as->devfn),
+                              VTD_PCI_FUNC(as->devfn));
+            return false;
+        }
     }
 
     /* Turn off first then on the other */
