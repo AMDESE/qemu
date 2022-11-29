@@ -82,6 +82,8 @@ static VTDPASIDAddressSpace *vtd_add_find_pasid_as(IntelIOMMUState *s,
                                                    PCIBus *bus,
                                                    int devfn,
                                                    uint32_t pasid);
+static int vtd_dev_get_rid2pasid(IntelIOMMUState *s, uint8_t bus_num,
+                                 uint8_t devfn, uint32_t *rid_pasid);
 
 static void vtd_panic_require_caching_mode(void)
 {
@@ -297,6 +299,7 @@ static gboolean vtd_hash_remove_by_page(gpointer key, gpointer value,
     uint64_t gfn = (info->addr >> VTD_PAGE_SHIFT_4K) & info->mask;
     uint64_t gfn_tlb = (info->addr & entry->mask) >> VTD_PAGE_SHIFT_4K;
     return (entry->domain_id == info->domain_id) &&
+            (info->is_piotlb ? (entry->pasid == info->pasid) : 1) &&
             (((entry->gfn & info->mask) == gfn) ||
              (entry->gfn == gfn_tlb));
 }
@@ -333,12 +336,19 @@ static void vtd_reset_iotlb(IntelIOMMUState *s)
     vtd_iommu_unlock(s);
 }
 
+static void vtd_reset_piotlb(IntelIOMMUState *s)
+{
+    assert(s->p_iotlb);
+    g_hash_table_remove_all(s->p_iotlb);
+}
+
 static void vtd_reset_caches(IntelIOMMUState *s)
 {
     vtd_iommu_lock(s);
     vtd_reset_iotlb_locked(s);
     vtd_reset_context_cache_locked(s);
     vtd_pasid_cache_reset(s);
+    vtd_reset_piotlb(s);
     vtd_iommu_unlock(s);
 }
 
@@ -2009,6 +2019,61 @@ static void vtd_report_fault(IntelIOMMUState *s,
     }
 }
 
+static uint64_t vtd_get_piotlb_gfn(hwaddr addr, uint32_t level)
+{
+    return (addr & vtd_flpt_level_page_mask(level)) >> VTD_PAGE_SHIFT_4K;
+}
+
+static int vtd_get_piotlb_key(char *key, int key_size, uint64_t gfn,
+                              uint32_t pasid, uint32_t level, uint16_t source_id)
+{
+    return snprintf(key, key_size, "rsv%010dsid%06dpasid%010dgfn%017lldlevel%01d",
+                    0, source_id, pasid, (unsigned long long int)gfn, level);
+}
+
+static VTDIOTLBEntry *vtd_lookup_piotlb(IntelIOMMUState *s, uint32_t pasid,
+                                        hwaddr addr, uint16_t source_id)
+{
+    VTDIOTLBEntry *entry;
+    char key[64];
+    int level;
+
+    for (level = VTD_SL_PT_LEVEL; level < VTD_SL_PML4_LEVEL; level++) {
+        vtd_get_piotlb_key(&key[0], 64, vtd_get_piotlb_gfn(addr, level),
+                           pasid, level, source_id);
+        entry = g_hash_table_lookup(s->p_iotlb, &key[0]);
+        if (entry) {
+            goto out;
+        }
+    }
+
+out:
+    return entry;
+}
+
+static void vtd_update_piotlb(IntelIOMMUState *s, uint32_t pasid,
+                              uint16_t domain_id, hwaddr addr, uint64_t flpte,
+                              uint8_t access_flags, uint32_t level,
+                              uint16_t source_id)
+{
+    VTDIOTLBEntry *entry = g_malloc(sizeof(*entry));
+    char *key = g_malloc(64);
+    uint64_t gfn = vtd_get_piotlb_gfn(addr, level);
+
+    if (g_hash_table_size(s->p_iotlb) >= VTD_PASID_IOTLB_MAX_SIZE) {
+        vtd_reset_piotlb(s);
+    }
+
+    entry->gfn = gfn;
+    entry->domain_id = domain_id;
+    entry->pte = flpte;
+    entry->pasid = pasid;
+    entry->access_flags = access_flags;
+    entry->mask = vtd_flpt_level_page_mask(level);
+    vtd_get_piotlb_key(key, 64, gfn, pasid, level, source_id);
+    g_hash_table_replace(s->p_iotlb, key, entry);
+}
+
 /* Map dev to pasid-entry then do a paging-structures walk to do a iommu
  * translation.
  *
@@ -2038,6 +2103,8 @@ static bool vtd_do_iommu_fl_translate(VTDAddressSpace *vtd_as, PCIBus *bus,
     bool reads = true;
     bool writes = true;
     uint8_t access_flags;
+    uint32_t pasid;
+    VTDIOTLBEntry *piotlb_entry;
 
     /*
      * We have standalone memory region for interrupt addresses, we
@@ -2054,6 +2121,28 @@ static bool vtd_do_iommu_fl_translate(VTDAddressSpace *vtd_as, PCIBus *bus,
                           VTD_PCI_FUNC(devfn),
                           addr);
         return false;
+    }
+
+    /* For emulated device IOVA translation, use RID2PASID. */
+    if (vtd_dev_get_rid2pasid(s, pci_bus_num(bus), devfn, &pasid)) {
+        error_report_once("%s: detected translation failure 2 "
+                          "(dev=%02x:%02x:%02x, iova=0x%" PRIx64 ")",
+                          __func__, pci_bus_num(bus),
+                          VTD_PCI_SLOT(devfn),
+                          VTD_PCI_FUNC(devfn),
+                          addr);
+        return false;
+    }
+
+    /* Try to fetch flpte form IOTLB */
+    piotlb_entry = vtd_lookup_piotlb(s, pasid, addr, source_id);
+    if (piotlb_entry) {
+        trace_vtd_piotlb_page_hit(source_id, pasid, addr, piotlb_entry->pte,
+                                  piotlb_entry->domain_id);
+        flpte = piotlb_entry->pte;
+        access_flags = piotlb_entry->access_flags;
+        page_mask = piotlb_entry->mask;
+        goto out;
     }
 
     vtd_iommu_lock(s);
@@ -2090,6 +2179,9 @@ static bool vtd_do_iommu_fl_translate(VTDAddressSpace *vtd_as, PCIBus *bus,
     page_mask = vtd_flpt_level_page_mask(level);
     access_flags = IOMMU_ACCESS_FLAG(reads, writes);
 
+    vtd_update_piotlb(s, pasid, vtd_pe_get_domain_id(&pe), addr, flpte,
+                      access_flags, level, source_id);
+out:
     vtd_iommu_unlock(s);
 
     entry->iova = addr & page_mask;
@@ -2754,6 +2846,7 @@ static void vtd_iotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
     trace_vtd_inv_desc_iotlb_pages(domain_id, addr, am);
 
     assert(am <= VTD_MAMV);
+    info.is_piotlb = false;
     info.domain_id = domain_id;
     info.addr = addr;
     info.mask = ~((1 << am) - 1);
@@ -3737,12 +3830,16 @@ static void vtd_flush_pasid_iotlb(gpointer key, gpointer value,
         vtd_invalidate_piotlb(vtd_pasid_as,
                               piotlb_info->inv_data);
     }
+}
 
-    /*
-     * TODO: needs to add QEMU piotlb flush when QEMU piotlb
-     * infrastructure is ready. For now, it is enough for passthru
-     * devices.
-     */
+static gboolean vtd_hash_remove_by_pasid(gpointer key, gpointer value,
+                                         gpointer user_data)
+{
+    VTDIOTLBEntry *entry = (VTDIOTLBEntry *)value;
+    VTDIOTLBPageInvInfo *info = (VTDIOTLBPageInvInfo *)user_data;
+
+    return ((entry->domain_id == info->domain_id) &&
+            (entry->pasid == info->pasid));
 }
 
 static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
@@ -3752,6 +3849,7 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
     struct iommu_hwpt_vtd_s1_invalidate_desc *cache_info;
     struct iommu_hwpt_vtd_s1_invalidate s1_inv = { 0 };
     VTDPIOTLBInvInfo piotlb_info;
+    VTDIOTLBPageInvInfo info;
     uint32_t request_nr = 1;
 
     cache_info = g_malloc0(sizeof(*cache_info));
@@ -3767,6 +3865,9 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
     piotlb_info.pasid = pasid;
     piotlb_info.inv_data = &s1_inv;
 
+    info.domain_id = domain_id;
+    info.pasid = pasid;
+
     vtd_iommu_lock(s);
     /*
      * Here loops all the vtd_pasid_as instances in s->vtd_pasid_as
@@ -3775,6 +3876,8 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
      */
     g_hash_table_foreach(s->vtd_pasid_as,
                          vtd_flush_pasid_iotlb, &piotlb_info);
+    g_hash_table_foreach_remove(s->p_iotlb, vtd_hash_remove_by_pasid,
+                                &info);
     vtd_iommu_unlock(s);
     g_free(cache_info);
 }
@@ -3786,6 +3889,7 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
     struct iommu_hwpt_vtd_s1_invalidate_desc *cache_info;
     struct iommu_hwpt_vtd_s1_invalidate s1_inv = { 0 };
     VTDPIOTLBInvInfo piotlb_info;
+    VTDIOTLBPageInvInfo info;
     uint32_t request_nr = 1;
 
     cache_info = g_malloc0(sizeof(*cache_info));
@@ -3802,6 +3906,12 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
     piotlb_info.pasid = pasid;
     piotlb_info.inv_data = &s1_inv;
 
+    info.is_piotlb = true;
+    info.domain_id = domain_id;
+    info.pasid = pasid;
+    info.addr = addr;
+    info.mask = ~((1 << am) - 1);
+
     vtd_iommu_lock(s);
     /*
      * Here loops all the vtd_pasid_as instances in s->vtd_pasid_as
@@ -3810,6 +3920,8 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
      */
     g_hash_table_foreach(s->vtd_pasid_as,
                          vtd_flush_pasid_iotlb, &piotlb_info);
+    g_hash_table_foreach_remove(s->p_iotlb,
+                                vtd_hash_remove_by_page, &info);
     vtd_iommu_unlock(s);
     g_free(cache_info);
 }
@@ -5611,6 +5723,8 @@ static void vtd_realize(DeviceState *dev, Error **errp)
     /* No corresponding destroy */
     s->iotlb = g_hash_table_new_full(vtd_iotlb_hash, vtd_iotlb_equal,
                                      g_free, g_free);
+    s->p_iotlb = g_hash_table_new_full(&g_str_hash, &g_str_equal,
+                                       g_free, g_free);
     s->vtd_address_spaces = g_hash_table_new_full(vtd_as_hash, vtd_as_equal,
                                       g_free, g_free);
     s->vtd_iommufd_dev = g_hash_table_new_full(vtd_as_hash, vtd_as_idev_equal,
