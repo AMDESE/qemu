@@ -600,6 +600,22 @@ typedef struct VTDPIOTLBInvInfo VTDPIOTLBInvInfo;
 #define VTD_SM_PASID_ENTRY_PAT(val)      (((val) >> 32) & 0xFFFFFFFFULL)
 #define VTD_SM_PASID_ENTRY_EMT(val)      (((val) >> 27) & 0x7ULL)
 
+#define VTD_PASID_IOTLB_MAX_SIZE          1024    /* Max size of the hash table */
+
+/* Paging Structure common */
+#define VTD_FL_PT_PAGE_SIZE_MASK    (1ULL << 7)
+/* Bits to decide the offset for each level */
+#define VTD_FL_LEVEL_BITS           9
+
+/* First Level Paging Structure */
+#define VTD_FL_PT_LEVEL             1
+#define VTD_FL_PT_ENTRY_NR          512
+
+/* Masks for First Level Paging Entry */
+#define VTD_FL_RW_MASK              (1ULL << 1)
+#define VTD_FL_PT_BASE_ADDR_MASK(aw) (~(VTD_PAGE_SIZE - 1) & VTD_HAW_MASK(aw))
+#define VTD_PASID_ENTRY_FPD         (1ULL << 1) /* Fault Processing Disable */
+
 /* Second Level Page Translation Pointer*/
 #define VTD_SM_PASID_ENTRY_SLPTPTR     (~0xfffULL)
 
