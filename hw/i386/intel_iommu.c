@@ -84,6 +84,8 @@ static VTDPASIDAddressSpace *vtd_add_find_pasid_as(IntelIOMMUState *s,
                                                    uint32_t pasid);
 static int vtd_dev_get_rid2pasid(IntelIOMMUState *s, uint8_t bus_num,
                                  uint8_t devfn, uint32_t *rid_pasid);
+static gboolean vtd_hash_remove_by_pasid(gpointer key, gpointer value,
+                                         gpointer user_data);
 
 static void vtd_panic_require_caching_mode(void)
 {
@@ -3442,14 +3444,21 @@ static gboolean vtd_flush_pasid(gpointer key, gpointer value,
     VTDPASIDCacheEntry *pc_entry = &vtd_pasid_as->pasid_cache_entry;
     PCIBus *bus = vtd_pasid_as->bus;
     VTDPASIDEntry pe;
+    VTDIOMMUFDDevice *vtd_idev;
+    VTDIOTLBPageInvInfo info;
     uint16_t did;
     uint32_t pasid;
     uint16_t devfn;
     int ret;
+    struct vtd_as_key as_key = {
+        .bus = vtd_pasid_as->bus,
+        .devfn = vtd_pasid_as->devfn,
+    };
 
     did = vtd_pe_get_domain_id(&pc_entry->pasid_entry);
     pasid = vtd_pasid_as->pasid;
     devfn = vtd_pasid_as->devfn;
+    vtd_idev = g_hash_table_lookup(s->vtd_iommufd_dev, &as_key);
 
     switch (pc_info->type) {
     case VTD_PASID_CACHE_FORCE_RESET:
@@ -3477,6 +3486,13 @@ static gboolean vtd_flush_pasid(gpointer key, gpointer value,
         abort();
     }
 
+    info.domain_id = did;
+    info.pasid = pasid;
+    /* For passthrough device, we don't need invalidate QEMU piotlb */
+    if (s->root_scalable && likely(s->dmar_enabled) && !vtd_idev)
+        g_hash_table_foreach_remove(s->p_iotlb, vtd_hash_remove_by_pasid,
+                                    &info);
+
     /*
      * pasid cache invalidation may indicate a present pasid
      * entry to present pasid entry modification. To cover such
@@ -3500,18 +3516,9 @@ static gboolean vtd_flush_pasid(gpointer key, gpointer value,
         return true;
     }
 
-    /*
-     * TODO:
-     * - when pasid-base-iotlb(piotlb) infrastructure is ready,
-     *   should invalidate QEMU piotlb togehter with this change.
-     */
     return false;
+
 remove:
-    /*
-     * TODO:
-     * - when pasid-base-iotlb(piotlb) infrastructure is ready,
-     *   should invalidate QEMU piotlb togehter with this change.
-     */
     if (vtd_bind_guest_pasid(vtd_pasid_as,
                              NULL, VTD_PASID_UNBIND)) {
         pasid_cache_info_set_error(pc_info);
