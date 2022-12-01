@@ -191,15 +191,23 @@
 #define VTD_ECAP_PT                 (1ULL << 6)
 #define VTD_ECAP_SC                 (1ULL << 7)
 #define VTD_ECAP_MHMV               (15ULL << 20)
+#define VTD_ECAP_PRS                (1ULL << 29)
 #define VTD_ECAP_ERS                (1ULL << 30)
 #define VTD_ECAP_SRS                (1ULL << 31)
 #define VTD_ECAP_EAFS               (1ULL << 34)
 #define VTD_ECAP_PASID              (1ULL << 40)
 #define VTD_ECAP_SMTS               (1ULL << 43)
 #define VTD_ECAP_SLTS               (1ULL << 46)
+#define VTD_ECAP_FLTS               (1ULL << 47)
+
+
 #define VTD_ECAP_RPS                (1ULL << 49)
+#define VTD_ECAP_PSS(val)           (((val) & 0x1fULL) << 35)
 
+#define VTD_GET_PSS(val)            (((val) >> 35) & 0x1f)
+#define VTD_ECAP_PSS_MASK           (0x1fULL << 35)
 
+#define VTD_CAP_MASK                (VTD_CAP_FL1GP | VTD_CAP_FL5LP)
 #define VTD_ECAP_MASK               (VTD_ECAP_ERS | VTD_ECAP_SRS | \
                                      VTD_ECAP_EAFS)
 
@@ -218,6 +226,8 @@
 #define VTD_CAP_SLLPS               ((1ULL << 34) | (1ULL << 35))
 #define VTD_CAP_DRAIN_WRITE         (1ULL << 54)
 #define VTD_CAP_DRAIN_READ          (1ULL << 55)
+#define VTD_CAP_FL1GP               (1ULL << 56)
+#define VTD_CAP_FL5LP               (1ULL << 60)
 #define VTD_CAP_DRAIN               (VTD_CAP_DRAIN_READ | VTD_CAP_DRAIN_WRITE)
 #define VTD_CAP_CM                  (1ULL << 7)
 #define VTD_PASID_ID_SHIFT          20

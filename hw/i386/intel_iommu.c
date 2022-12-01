@@ -4890,7 +4890,7 @@ static Property vtd_properties[] = {
     DEFINE_PROP_UINT8("aw-bits", IntelIOMMUState, aw_bits,
                       VTD_HOST_ADDRESS_WIDTH),
     DEFINE_PROP_BOOL("caching-mode", IntelIOMMUState, caching_mode, FALSE),
-    DEFINE_PROP_BOOL("x-scalable-mode", IntelIOMMUState, scalable_mode, FALSE),
+    DEFINE_PROP_STRING("x-scalable-mode", IntelIOMMUState, scalable_mode_str),
     DEFINE_PROP_BOOL("snoop-control", IntelIOMMUState, snoop_control, false),
     DEFINE_PROP_BOOL("x-pasid-mode", IntelIOMMUState, pasid, false),
     DEFINE_PROP_BOOL("dma-drain", IntelIOMMUState, dma_drain, true),
@@ -5338,24 +5338,40 @@ VTDAddressSpace *vtd_find_add_as(IntelIOMMUState *s, PCIBus *bus,
 static bool vtd_check_hw_info(IntelIOMMUState *s,
                                    struct iommu_hw_info_vtd *vtd)
 {
-    return s->aw_bits <= ((vtd->cap_reg >> 16) & 0x3fULL);
+    return !((s->aw_bits > ((vtd->cap_reg >> 16) & 0x3fULL)) ||
+             ((s->host_cap ^ vtd->cap_reg) & VTD_CAP_MASK & s->host_cap) ||
+             ((s->host_ecap ^ vtd->ecap_reg) & VTD_ECAP_MASK & s->host_ecap) ||
+             (VTD_GET_PSS(s->host_ecap) > VTD_GET_PSS(vtd->ecap_reg)));
 }
 
 /* Caller should hold iommu lock. */
 static bool vtd_sync_hw_info(IntelIOMMUState *s,
                                   struct iommu_hw_info_vtd *vtd)
 {
-    uint64_t ecap, addr_width;
+    uint64_t cap, ecap, addr_width, pasid_bits;
 
     if (s->cap_finalized) {
         return vtd_check_hw_info(s, vtd);
     }
 
-    addr_width = (vtd->cap_reg >> 16) & 0x3fULL;
-    if (s->aw_bits > addr_width) {
-        error_report("User aw-bits: %u > host address width: %lu",
-                      s->aw_bits, addr_width);
-        return false;
+    if (!s->scalable_modern) {
+        addr_width = (vtd->cap_reg >> 16) & 0x3fULL;
+        if (s->aw_bits > addr_width) {
+            error_report("User aw-bits: %u > host address width: %lu",
+                         s->aw_bits, addr_width);
+            return false;
+        }
+    } else {
+        cap = s->host_cap & vtd->cap_reg & VTD_CAP_MASK;
+        s->host_cap &= ~VTD_CAP_MASK;
+        s->host_cap |= cap;
+
+        pasid_bits = VTD_GET_PSS(vtd->ecap_reg);
+        if ((VTD_ECAP_PASID & s->host_ecap & vtd->ecap_reg) && pasid_bits &&
+            (VTD_GET_PSS(s->host_ecap) > pasid_bits)) {
+            s->host_ecap &= ~VTD_ECAP_PSS_MASK;
+            s->host_ecap |= VTD_ECAP_PSS(pasid_bits);
+        }
     }
 
     ecap = s->host_ecap & vtd->ecap_reg & VTD_ECAP_MASK;
@@ -5607,6 +5623,9 @@ static void vtd_cap_init(IntelIOMMUState *s)
 
     if (x86_iommu->dt_supported) {
         s->ecap |= VTD_ECAP_DT;
+        if (s->scalable_modern) {
+            s->ecap |= VTD_ECAP_PRS;
+        }
     }
 
     if (x86_iommu->pt_supported) {
@@ -5618,8 +5637,14 @@ static void vtd_cap_init(IntelIOMMUState *s)
     }
 
     /* TODO: read cap/ecap from host to decide which cap to be exposed. */
-    if (s->scalable_mode) {
+    if (s->scalable_mode && !s->scalable_modern) {
         s->ecap |= VTD_ECAP_SMTS | VTD_ECAP_SRS | VTD_ECAP_SLTS;
+    } else if (s->scalable_mode && s->scalable_modern) {
+        s->ecap |= VTD_ECAP_SMTS | VTD_ECAP_SRS;
+        if (s->aw_bits == VTD_HOST_AW_48BIT) {
+            s->ecap |= VTD_ECAP_FLTS;
+            s->cap |= VTD_CAP_FL1GP;
+        }
     }
 
     if (s->snoop_control) {
@@ -5802,6 +5827,28 @@ static bool vtd_decide_config(IntelIOMMUState *s, Error **errp)
     if (s->scalable_mode && !s->dma_drain) {
         error_setg(errp, "Need to set dma_drain for scalable mode");
         return false;
+    }
+
+    if (s->scalable_mode_str &&
+        (strcmp(s->scalable_mode_str, "off") &&
+         strcmp(s->scalable_mode_str, "modern") &&
+         strcmp(s->scalable_mode_str, "legacy"))) {
+        error_setg(errp, "Invalid x-scalable-mode config,"
+                         "Please use \"modern\", \"legacy\" or \"off\"");
+        return false;
+    }
+
+    if (s->scalable_mode_str &&
+        !strcmp(s->scalable_mode_str, "legacy")) {
+        s->scalable_mode = true;
+        s->scalable_modern = false;
+    } else if (s->scalable_mode_str &&
+        !strcmp(s->scalable_mode_str, "modern")) {
+        s->scalable_mode = true;
+        s->scalable_modern = true;
+    } else {
+        s->scalable_mode = false;
+        s->scalable_modern = false;
     }
 
     if (s->pasid && !s->scalable_mode) {
