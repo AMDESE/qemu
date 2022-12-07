@@ -5164,6 +5164,7 @@ static int kvm_handle_exit_hypercall(X86CPU *cpu, struct kvm_run *run)
         unsigned long gpa = run->hypercall.args[0];
         unsigned long npages = run->hypercall.args[1];
 
+        trace_kvm_hc_map_range(gpa, npages, enc);
         kvm_convert_memory(gpa, npages * 4096, enc);
     }
     return 0;
