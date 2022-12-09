@@ -39,6 +39,7 @@
 #include "hw/i386/pc.h"
 #include "exec/address-spaces.h"
 #include "qemu/queue.h"
+#include "exec/ramblock.h"
 
 /* hard code sha256 digest size */
 #define HASH_SIZE 32
@@ -361,6 +362,34 @@ sev_ram_block_removed(RAMBlockNotifier *n, void *host, size_t size,
 static struct RAMBlockNotifier sev_ram_notifier = {
     .ram_block_added = sev_ram_block_added,
     .ram_block_removed = sev_ram_block_removed,
+};
+
+static void sev_region_add(MemoryListener *listener,
+                           MemoryRegionSection *section)
+{
+    MemoryRegion *mr = section->mr;
+
+    if (mr->ram_block && mr->ram_block->restricted_fd > 0) {
+        kvm_encrypt_reg_region(section->offset_within_address_space,
+                               int128_get64(section->size), true);
+    }
+}
+
+static void sev_region_del(MemoryListener *listener,
+                           MemoryRegionSection *section)
+{
+    MemoryRegion *mr = section->mr;
+
+    if (mr->ram_block && mr->ram_block->restricted_fd > 0) {
+        kvm_encrypt_reg_region(section->offset_within_address_space,
+                               int128_get64(section->size), false);
+    }
+}
+
+static struct MemoryListener sev_mem_listener = {
+    .name = "sev-memory",
+    .region_add = sev_region_add,
+    .region_del = sev_region_del,
 };
 
 static char *
@@ -1771,6 +1800,10 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         }
 
         g_warning("Restricted memory (UPM) enabled, disabling SMM. Memory discard mode: %s", sev_common->discard);
+
+        if (!sev_snp_enabled()) {
+            memory_listener_register(&sev_mem_listener, &address_space_memory);
+        }
     }
 
     if (sev_snp_enabled()) {
