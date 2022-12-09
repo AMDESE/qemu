@@ -1250,8 +1250,6 @@ sev_launch_update_data(SevGuestState *sev_guest, uint8_t *addr, uint64_t len, hw
         return 1;
     }
 
-    /* FIXME: length should atleast be page size */
-    len = MAX(len, 4096);
     update.uaddr = (__u64)(unsigned long)addr;
     update.len = len;
     trace_kvm_sev_launch_update_data(addr, len);
