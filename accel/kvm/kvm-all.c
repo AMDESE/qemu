@@ -2861,11 +2861,13 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private, bool p
         return -1;
     }
 
-    ret = kvm_encrypt_reg_region(start, size, shared_to_private);
-    if (ret) {
-        warn_report("Failed to update attributes for range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
-                    start, size, shared_to_private, ret);
-        goto out;
+    if (!preserve) {
+        ret = kvm_encrypt_reg_region(start, size, shared_to_private);
+        if (ret) {
+            warn_report("Failed to update attributes for range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
+                        start, size, shared_to_private, ret);
+            goto out;
+        }
     }
 
 
@@ -2962,6 +2964,10 @@ int kvm_cpu_exec(CPUState *cpu)
                 ret = EXCP_INTERRUPT;
                 break;
             }
+            if (run_ret == -1) {
+                run_ret = 0;
+                goto skip;
+            }
             fprintf(stderr, "error: kvm run failed %s\n",
                     strerror(-run_ret));
 #ifdef TARGET_PPC
@@ -2972,10 +2978,6 @@ int kvm_cpu_exec(CPUState *cpu)
                         "secondary threads offline.\n");
             }
 #endif
-            if (run_ret == -1) {
-                run_ret = 0;
-                goto skip;
-            }
             ret = -1;
             break;
         }
