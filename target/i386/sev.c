@@ -2302,22 +2302,16 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
     ghcb = address_space_map(&address_space_memory, ghcb_addr,
                                   &len, true, attrs);
 
-    g_warning("vmgexit (exit_code: 0x%lx, ghcb_addr: 0x%lx", ghcb->save.sw_exit_code, ghcb_addr);
-
     memcpy(shared_buf, ghcb->shared_buffer, GHCB_SHARED_BUF_SIZE);
     address_space_unmap(&address_space_memory, ghcb, len, true, len);
 
     desc = (struct snp_psc_desc *)shared_buf;
     cur_entry = desc->hdr.cur_entry;
-    g_warning("psc: cur_entry: %d, end_entry: %d", desc->hdr.cur_entry, desc->hdr.end_entry);
 
     for (i = cur_entry; i <= desc->hdr.end_entry; i++) {
         struct psc_entry *entry = &desc->entries[i];
         bool private;
         int ret;
-
-        g_warning("psc: cur_page: 0x%x, gfn: 0x%lx, operation: 0x%x, pagesize: 0x%x",
-                  entry->cur_page, (uint64_t)entry->gfn, entry->operation, entry->pagesize);
 
         private = entry->operation == 1;
 
