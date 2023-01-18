@@ -3955,6 +3955,19 @@ static void vtd_flush_pasid_iotlb(gpointer key, gpointer value,
     VTDPASIDAddressSpace *vtd_pasid_as = value;
     VTDPASIDCacheEntry *pc_entry = &vtd_pasid_as->pasid_cache_entry;
     uint16_t did;
+    uint32_t rid2pasid = 0;;
+    int devfn = vtd_pasid_as->devfn;
+    IntelIOMMUState *s = vtd_pasid_as->iommu_state;;
+
+    vtd_dev_get_rid2pasid(s, pci_bus_num(vtd_pasid_as->bus), devfn, &rid2pasid);
+    /*
+     * For VT-d, by default, IOTLB type cache invalidation from guest
+     * is PASID selective, by removing the FLAGS_PASID bit, host VT-d
+     * driver should use default PASID.
+     */
+    if (piotlb_info->pasid != rid2pasid) {
+        piotlb_info->cache_info->flags |= IOMMU_VTD_QI_FLAGS_LEAF;
+    }
 
     did = vtd_pe_get_domain_id(&pc_entry->pasid_entry);
 
@@ -4012,10 +4025,12 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
     g_free(cache_info);
 
     QLIST_FOREACH(vtd_as, &(s->vtd_as_with_notifiers), next) {
+        uint32_t rid2pasid = 0;
+        vtd_dev_get_rid2pasid(s, pci_bus_num(vtd_as->bus), vtd_as->devfn, &rid2pasid);
         ret = vtd_dev_to_context_entry(s, pci_bus_num(vtd_as->bus), vtd_as->devfn, &ce);
         if (s->root_scalable && likely(s->dmar_enabled) &&
             domain_id == vtd_get_domain_id(s, &ce, pasid) &&
-            !ret && pasid == VTD_CE_GET_RID2PASID(&ce)) {
+            !ret && pasid == rid2pasid) {
             ret = vtd_ce_get_rid2pasid_entry(s, &ce, &pe, pasid);
             if (!ret && VTD_PE_GET_TYPE(&pe) == VTD_SM_PASID_ENTRY_FLT) {
                 ret = vtd_sync_flt_range(vtd_as, &ce, 0, UINT64_MAX);
