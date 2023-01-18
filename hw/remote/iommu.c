@@ -36,8 +36,8 @@
  *   destroyed.
  */
 
-static AddressSpace *remote_iommu_find_add_as(PCIBus *pci_bus,
-                                              void *opaque, int devfn)
+static AddressSpace *remote_iommu_find_add_as(PCIBus *pci_bus, void *opaque,
+                                              int devfn)
 {
     RemoteIommu *iommu = opaque;
     RemoteIommuElem *elem = NULL;
@@ -61,6 +61,10 @@ static AddressSpace *remote_iommu_find_add_as(PCIBus *pci_bus,
 
     return &elem->as;
 }
+
+static const PCIIOMMUOps remote_iommu_ops = {
+    .get_address_space = remote_iommu_find_add_as,
+};
 
 void remote_iommu_unplug_dev(PCIDevice *pci_dev)
 {
@@ -108,7 +112,7 @@ void remote_iommu_setup(PCIBus *pci_bus)
 
     iommu = REMOTE_IOMMU(object_new(TYPE_REMOTE_IOMMU));
 
-    pci_setup_iommu(pci_bus, remote_iommu_find_add_as, iommu);
+    pci_setup_iommu(pci_bus, &remote_iommu_ops, iommu);
 
     object_property_add_child(OBJECT(pci_bus), "remote-iommu", OBJECT(iommu));
 
