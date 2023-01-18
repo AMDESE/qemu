@@ -27,8 +27,7 @@
 #include <sys/ioctl.h>
 #include "qemu/error-report.h"
 
-int iommufd_device_attach_hwpt(IOMMUFDDevice *idev, uint32_t *pasid,
-                               uint32_t hwpt_id)
+int iommufd_device_attach_hwpt(IOMMUFDDevice *idev, uint32_t hwpt_id)
 {
     IOMMUFDDeviceClass *idevc;
 
@@ -38,10 +37,10 @@ int iommufd_device_attach_hwpt(IOMMUFDDevice *idev, uint32_t *pasid,
         return -EINVAL;
     }
 
-    return idevc->attach_hwpt(idev, pasid, hwpt_id);
+    return idevc->attach_hwpt(idev, hwpt_id);
 }
 
-int iommufd_device_detach_hwpt(IOMMUFDDevice *idev, uint32_t *pasid)
+int iommufd_device_detach_hwpt(IOMMUFDDevice *idev)
 {
     IOMMUFDDeviceClass *idevc;
 
@@ -51,7 +50,7 @@ int iommufd_device_detach_hwpt(IOMMUFDDevice *idev, uint32_t *pasid)
         return -EINVAL;
     }
 
-    return idevc->detach_hwpt(idev, pasid);
+    return idevc->detach_hwpt(idev);
 }
 
 int iommufd_device_get_info(IOMMUFDDevice *idev,
