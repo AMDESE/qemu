@@ -74,6 +74,10 @@ static void vtd_address_space_refresh_all(IntelIOMMUState *s);
 static void vtd_address_space_unmap(VTDAddressSpace *as, IOMMUNotifier *n);
 
 static void vtd_pasid_cache_reset(IntelIOMMUState *s);
+static void vtd_pasid_cache_sync(IntelIOMMUState *s,
+                                 VTDPASIDCacheInfo *pc_info);
+static void vtd_pasid_cache_devsi(IntelIOMMUState *s,
+                                  PCIBus *bus, uint16_t devfn);
 
 static void vtd_panic_require_caching_mode(void)
 {
@@ -2050,6 +2054,8 @@ static void vtd_iommu_replay_all(IntelIOMMUState *s)
 
 static void vtd_context_global_invalidate(IntelIOMMUState *s)
 {
+    VTDPASIDCacheInfo pc_info = { .error_happened = false, };
+
     trace_vtd_inv_desc_cc_global();
     /* Protects context cache */
     vtd_iommu_lock(s);
@@ -2067,6 +2073,9 @@ static void vtd_context_global_invalidate(IntelIOMMUState *s)
      * VT-d emulation codes.
      */
     vtd_iommu_replay_all(s);
+
+    pc_info.type = VTD_PASID_CACHE_GLOBAL_INV;
+    vtd_pasid_cache_sync(s, &pc_info);
 }
 
 static void vtd_init_fl_hwpt_data(struct iommu_hwpt_intel_vtd *vtd,
@@ -2091,7 +2100,7 @@ static void vtd_init_fl_hwpt_data(struct iommu_hwpt_intel_vtd *vtd,
     vtd->pat = VTD_SM_PASID_ENTRY_PAT(pe->val[1]);
     vtd->emt = VTD_SM_PASID_ENTRY_EMT(pe->val[1]);
     vtd->addr_width = vtd_pe_get_fl_aw(pe);
-    vtd->s1_pgtbl = (uint64_t)vtd_pe_get_flpt_base(pe);
+    vtd->pgtbl_addr = (uint64_t)vtd_pe_get_flpt_base(pe);
 }
 
 /* Called under iommu->lock */
@@ -2409,6 +2418,21 @@ static void vtd_context_device_invalidate(IntelIOMMUState *s,
              * happened.
              */
             vtd_sync_shadow_page_table(vtd_as);
+            /*
+             * Per spec, context flush should also followed with PASID
+             * cache and iotlb flush. Regards to a device selective
+             * context cache invalidation:
+             * if (emaulted_device)
+             *    invalidate pasid cahce and pasid-based iotlb
+             * else if (assigned_device)
+             *    check if the device has been bound to any pasid
+             *    invoke pasid_unbind regards to each bound pasid
+             * Here, we have vtd_pasid_cache_devsi() to invalidate pasid
+             * caches, while for piotlb in QEMU, we don't have it yet, so
+             * no handling. For assigned device, host iommu driver would
+             * flush piotlb when a pasid unbind is pass down to it.
+             */
+             vtd_pasid_cache_devsi(s, vtd_as->bus, devfn);
         }
     }
 }
@@ -3040,6 +3064,12 @@ static gboolean vtd_flush_pasid(gpointer key, gpointer value,
         /* Fall through */
     case VTD_PASID_CACHE_GLOBAL_INV:
         break;
+    case VTD_PASID_CACHE_DEVSI:
+        if (pc_info->bus != bus ||
+            pc_info->devfn != devfn) {
+            return false;
+        }
+        break;
     default:
         error_report("invalid pc_info->type");
         abort();
@@ -3267,6 +3297,11 @@ static void vtd_replay_guest_pasid_bindings(IntelIOMMUState *s,
     case VTD_PASID_CACHE_GLOBAL_INV:
         /* loop all assigned devices */
         break;
+    case VTD_PASID_CACHE_DEVSI:
+        walk_info.bus = pc_info->bus;
+        walk_info.devfn = pc_info->devfn;
+        vtd_replay_pasid_bind_for_dev(s, start, end, &walk_info);
+        return;
     case VTD_PASID_CACHE_FORCE_RESET:
         /* For force reset, no need to go further replay */
         return;
@@ -3353,6 +3388,20 @@ static void vtd_pasid_cache_sync(IntelIOMMUState *s,
      */
     vtd_replay_guest_pasid_bindings(s, pc_info);
     vtd_iommu_unlock(s);
+}
+
+static void vtd_pasid_cache_devsi(IntelIOMMUState *s,
+                                  PCIBus *bus, uint16_t devfn)
+{
+    VTDPASIDCacheInfo pc_info = { .error_happened = false, };
+
+    trace_vtd_pasid_cache_devsi(devfn);
+
+    pc_info.type = VTD_PASID_CACHE_DEVSI;
+    pc_info.bus = bus;
+    pc_info.devfn = devfn;
+
+    vtd_pasid_cache_sync(s, &pc_info);
 }
 
 /**
