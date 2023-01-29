@@ -1763,7 +1763,7 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
     }
 
     if (sev_common->upm_mode) {
-        bool has_upm = kvm_check_extension(kvm_state, KVM_CAP_UNMAPPED_PRIVATE_MEM);
+        bool has_upm = kvm_check_extension(kvm_state, KVM_CAP_VM_TYPES) & BIT(KVM_X86_PROTECTED_VM);
 
         if (!has_upm) {
             error_setg(errp, "%s: KVM_CAP_UNMAPPED_PRIVATE_MEM not supported",
@@ -1771,13 +1771,7 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
             goto err;
         }
 
-        ret = kvm_vm_enable_cap(kvm_state, KVM_CAP_UNMAPPED_PRIVATE_MEM, 0, 0);
-        if (ret) {
-            error_setg(errp, "%s: failed to enable KVM_CAP_UNMAPPED_PRIVATE_MEM, ret=%d",
-                       __func__, ret);
-            goto err;
-        }
-        g_warning("UPM mode enabled");
+        g_warning("UPM mode enabled, discard=%s", sev_common->discard);
         cgs->use_private_memslots = true;
 
         if (!g_strcmp0(sev_common->discard, "both")) {
