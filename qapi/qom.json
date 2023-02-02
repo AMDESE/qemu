@@ -929,6 +929,7 @@
             '*id-block': 'str',
             '*id-auth': 'str',
             '*auth-key-enabled': 'bool',
+            '*kernel-hashes': 'bool',
             '*host-data': 'str' } }
 
 ##

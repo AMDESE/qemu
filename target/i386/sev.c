@@ -103,6 +103,7 @@ struct SevSnpGuestState {
     struct kvm_snp_init kvm_init_conf;
     struct kvm_sev_snp_launch_start kvm_start_conf;
     struct kvm_sev_snp_launch_finish kvm_finish_conf;
+    bool kernel_hashes;
 };
 
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
@@ -498,6 +499,20 @@ static void sev_guest_set_kernel_hashes(Object *obj, bool value, Error **errp)
     sev->kernel_hashes = value;
 }
 
+static bool sev_snp_guest_get_kernel_hashes(Object *obj, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    return sev_snp_guest->kernel_hashes;
+}
+
+static void sev_snp_guest_set_kernel_hashes(Object *obj, bool value, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    sev_snp_guest->kernel_hashes = value;
+}
+
 static void
 sev_guest_class_init(ObjectClass *oc, void *data)
 {
@@ -764,6 +779,9 @@ sev_snp_guest_class_init(ObjectClass *oc, void *data)
     object_class_property_add_bool(oc, "auth-key-enabled",
                                    sev_snp_guest_get_auth_key_en,
                                    sev_snp_guest_set_auth_key_en);
+    object_class_property_add_bool(oc, "kernel-hashes",
+                                   sev_snp_guest_get_kernel_hashes,
+                                   sev_snp_guest_set_kernel_hashes);
     object_class_property_add_str(oc, "host-data",
                                   sev_snp_guest_get_host_data,
                                   sev_snp_guest_set_host_data);
@@ -2091,6 +2109,16 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     SevGuestState *sev_guest =
         (SevGuestState *)object_dynamic_cast(OBJECT(sev_common),
                                              TYPE_SEV_GUEST);
+    SevSnpGuestState *sev_snp_guest =
+        (SevSnpGuestState *)object_dynamic_cast(OBJECT(sev_common),
+                                             TYPE_SEV_SNP_GUEST);
+
+    if (sev_snp_guest) {
+       if (sev_snp_guest->kernel_hashes) {
+           goto cont;
+       }
+       return false;
+    }
 
     /*
      * Only add the kernel hashes if the sev-guest configuration explicitly
@@ -2101,6 +2129,7 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
         return false;
     }
 
+cont:
     if (!pc_system_ovmf_table_find(SEV_HASH_TABLE_RV_GUID, &data, NULL)) {
         error_setg(errp, "SEV: kernel specified but guest firmware "
                          "has no hashes table GUID");
