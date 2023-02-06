@@ -42,6 +42,17 @@
 #include "migration/migration.h"
 #include "sysemu/tpm.h"
 
+#ifdef CONFIG_KVM
+/*
+ * We have a single VFIO pseudo device per KVM VM.  Once created it lives
+ * for the life of the VM.  Closing the file descriptor only drops our
+ * reference to it and the device's reference to kvm.  Therefore once
+ * initialized, this file descriptor is only released on QEMU exit and
+ * we'll re-use it should another vfio device be attached before then.
+ */
+int vfio_kvm_device_fd = -1;
+#endif
+
 VFIOAddressSpaceList vfio_address_spaces =
     QLIST_HEAD_INITIALIZER(vfio_address_spaces);
 
@@ -991,3 +1002,60 @@ static void vfio_iommu_backend_ops_register_types(void)
     type_register_static(&vfio_iommu_backend_ops_type_info);
 }
 type_init(vfio_iommu_backend_ops_register_types);
+
+int vfio_kvm_device_add_fd(int fd)
+{
+#ifdef CONFIG_KVM
+    struct kvm_device_attr attr = {
+        .group = KVM_DEV_VFIO_GROUP,
+        .attr = KVM_DEV_VFIO_GROUP_ADD,
+        .addr = (uint64_t)(unsigned long)&fd,
+    };
+
+    if (!kvm_enabled()) {
+        return 0;
+    }
+
+    if (vfio_kvm_device_fd < 0) {
+        struct kvm_create_device cd = {
+            .type = KVM_DEV_TYPE_VFIO,
+        };
+
+        if (kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd)) {
+            error_report("Failed to create KVM VFIO device: %m");
+            return -ENODEV;
+        }
+
+        vfio_kvm_device_fd = cd.fd;
+    }
+
+    if (ioctl(vfio_kvm_device_fd, KVM_SET_DEVICE_ATTR, &attr)) {
+        error_report("Failed to add fd %d to KVM VFIO device: %m",
+                     fd);
+	return -errno;
+    }
+#endif
+    return 0;
+}
+
+int vfio_kvm_device_del_fd(int fd)
+{
+#ifdef CONFIG_KVM
+    struct kvm_device_attr attr = {
+        .group = KVM_DEV_VFIO_GROUP,
+        .attr = KVM_DEV_VFIO_GROUP_DEL,
+        .addr = (uint64_t)(unsigned long)&fd,
+    };
+
+    if (vfio_kvm_device_fd < 0) {
+        return -EINVAL;
+    }
+
+    if (ioctl(vfio_kvm_device_fd, KVM_SET_DEVICE_ATTR, &attr)) {
+        error_report("Failed to remove fd %d from KVM VFIO device: %m",
+                     fd);
+	return -EBADF;
+    }
+#endif
+    return 0;
+}

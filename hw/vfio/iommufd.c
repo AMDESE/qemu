@@ -198,6 +198,22 @@ static VFIOIOASHwpt *vfio_find_hwpt_for_dev(VFIOIOMMUFDContainer *container,
     return NULL;
 }
 
+static void vfio_kvm_device_add_device(VFIODevice *vbasedev)
+{
+    if (vfio_kvm_device_add_fd(vbasedev->fd)) {
+        error_report("Failed to add device %s to KVM VFIO device",
+                     vbasedev->sysfsdev);
+    }
+}
+
+static void vfio_kvm_device_del_device(VFIODevice *vbasedev)
+{
+    if (vfio_kvm_device_del_fd(vbasedev->fd)) {
+        error_report("Failed to del device %s to KVM VFIO device",
+                     vbasedev->sysfsdev);
+    }
+}
+
 static void
 __vfio_device_detach_container(VFIODevice *vbasedev,
                                VFIOIOMMUFDContainer *container, Error **errp)
@@ -213,6 +229,7 @@ __vfio_device_detach_container(VFIODevice *vbasedev,
     }
     trace_vfio_iommufd_detach_device(container->be->fd, vbasedev->name,
                                      container->ioas_id);
+    vfio_kvm_device_del_device(vbasedev);
 
     /* iommufd unbind is done per device fd close */
 }
@@ -252,9 +269,17 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
     VFIOIOASHwpt *hwpt;
     int ret;
 
+    /*
+     * Add device to kvm-vfio to be prepared for the tracking
+     * in KVM. Especially for some emulated devices, it requires
+     * to have kvm information in the device open.
+     */
+    vfio_kvm_device_add_device(vbasedev);
+
     /* Bind device to iommufd */
     ret = ioctl(vbasedev->fd, VFIO_DEVICE_BIND_IOMMUFD, &bind);
     if (ret) {
+        vfio_kvm_device_del_device(vbasedev);
         error_setg_errno(errp, errno, "error bind device fd=%d to iommufd=%d",
                          vbasedev->fd, bind.iommufd);
         return ret;
@@ -267,6 +292,7 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
     /* Attach device to an ioas within iommufd */
     ret = ioctl(vbasedev->fd, VFIO_DEVICE_ATTACH_IOMMUFD_PT, &attach_data);
     if (ret) {
+        vfio_kvm_device_del_device(vbasedev);
         error_setg_errno(errp, errno,
                          "[iommufd=%d] error attach %s (%d) to ioasid=%d",
                          container->be->fd, vbasedev->name, vbasedev->fd,
@@ -424,11 +450,6 @@ static int iommufd_attach_device(VFIODevice *vbasedev, AddressSpace *as,
      */
     vfio_host_win_add(bcontainer, 0, (hwaddr)-1, 4096);
     bcontainer->pgsizes = 4096;
-
-    /*
-     * TODO: kvmgroup, unable to do it before the protocol done
-     * between iommufd and kvm.
-     */
 
     vfio_as_add_container(space, bcontainer);
 
