@@ -42,17 +42,6 @@
 VFIOGroupList vfio_group_list =
     QLIST_HEAD_INITIALIZER(vfio_group_list);
 
-#ifdef CONFIG_KVM
-/*
- * We have a single VFIO pseudo device per KVM VM.  Once created it lives
- * for the life of the VM.  Closing the file descriptor only drops our
- * reference to it and the device's reference to kvm.  Therefore once
- * initialized, this file descriptor is only released on QEMU exit and
- * we'll re-use it should another vfio device be attached before then.
- */
-static int vfio_kvm_device_fd = -1;
-#endif
-
 static int vfio_ram_block_discard_disable(VFIOLegacyContainer *container,
                                           bool state)
 {
@@ -469,55 +458,18 @@ bool vfio_get_info_dma_avail(struct vfio_iommu_type1_info *info,
 
 static void vfio_kvm_device_add_group(VFIOGroup *group)
 {
-#ifdef CONFIG_KVM
-    struct kvm_device_attr attr = {
-        .group = KVM_DEV_VFIO_GROUP,
-        .attr = KVM_DEV_VFIO_GROUP_ADD,
-        .addr = (uint64_t)(unsigned long)&group->fd,
-    };
-
-    if (!kvm_enabled()) {
-        return;
-    }
-
-    if (vfio_kvm_device_fd < 0) {
-        struct kvm_create_device cd = {
-            .type = KVM_DEV_TYPE_VFIO,
-        };
-
-        if (kvm_vm_ioctl(kvm_state, KVM_CREATE_DEVICE, &cd)) {
-            error_report("Failed to create KVM VFIO device: %m");
-            return;
-        }
-
-        vfio_kvm_device_fd = cd.fd;
-    }
-
-    if (ioctl(vfio_kvm_device_fd, KVM_SET_DEVICE_ATTR, &attr)) {
-        error_report("Failed to add group %d to KVM VFIO device: %m",
+    if (vfio_kvm_device_add_fd(group->fd)) {
+        error_report("Failed to add group %d to KVM VFIO device",
                      group->groupid);
     }
-#endif
 }
 
 static void vfio_kvm_device_del_group(VFIOGroup *group)
 {
-#ifdef CONFIG_KVM
-    struct kvm_device_attr attr = {
-        .group = KVM_DEV_VFIO_GROUP,
-        .attr = KVM_DEV_VFIO_GROUP_DEL,
-        .addr = (uint64_t)(unsigned long)&group->fd,
-    };
-
-    if (vfio_kvm_device_fd < 0) {
-        return;
-    }
-
-    if (ioctl(vfio_kvm_device_fd, KVM_SET_DEVICE_ATTR, &attr)) {
-        error_report("Failed to remove group %d from KVM VFIO device: %m",
+    if (vfio_kvm_device_del_fd(group->fd)) {
+        error_report("Failed to remove group %d from KVM VFIO device",
                      group->groupid);
     }
-#endif
 }
 
 /*
