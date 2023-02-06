@@ -1394,11 +1394,8 @@ struct kvm_create_device {
 
 struct kvm_device_attr {
 	__u32	flags;		/* no flags currently defined */
-	union {
-		__u32	group;
-		__u32	file;
-	}; /* device-defined */
-	__u64	attr;		/* VFIO-file-defined or group-defined */
+	__u32	group;		/* device-defined */
+	__u64	attr;		/* group-defined */
 	__u64	addr;		/* userspace address of attr data */
 };
 
@@ -1408,7 +1405,7 @@ struct kvm_device_attr {
 #define   KVM_DEV_VFIO_FILE_DEL			2
 #define   KVM_DEV_VFIO_FILE_SET_SPAPR_TCE	3
 
-/* Group aliases are for compile time uapi compatibility */
+/* KVM_DEV_VFIO_GROUP aliases are for compile time uapi compatibility */
 #define  KVM_DEV_VFIO_GROUP	KVM_DEV_VFIO_FILE
 
 #define   KVM_DEV_VFIO_GROUP_ADD	KVM_DEV_VFIO_FILE_ADD

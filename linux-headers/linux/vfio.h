@@ -234,7 +234,7 @@ struct vfio_device_bind_iommufd {
  * Available only after a device has been bound to iommufd via
  * VFIO_DEVICE_BIND_IOMMUFD
  *
- * Undo by passing pt_id == IOMMUFD_INVALID_ID
+ * Undo by VFIO_DEVICE_DETACH_IOMMUFD_PT or device fd close.
  *
  * @argsz:	user filled size of this data.
  * @flags:	must be 0.
@@ -253,6 +253,28 @@ struct vfio_device_attach_iommufd_pt {
 };
 
 #define VFIO_DEVICE_ATTACH_IOMMUFD_PT		_IO(VFIO_TYPE, VFIO_BASE + 20)
+
+/*
+ * VFIO_DEVICE_DETACH_IOMMUFD_PT - _IOW(VFIO_TYPE, VFIO_BASE + 21,
+ *					struct vfio_device_detach_iommufd_pt)
+ *
+ * Detach a vfio device from the iommufd address space it has been
+ * attached to. After it, device should be in a blocking DMA state.
+ *
+ * Available only after a device has been bound to iommufd via
+ * VFIO_DEVICE_BIND_IOMMUFD
+ *
+ * @argsz:	user filled size of this data.
+ * @flags:	must be 0.
+ *
+ * Return: 0 on success, -errno on failure.
+ */
+struct vfio_device_detach_iommufd_pt {
+	__u32	argsz;
+	__u32	flags;
+};
+
+#define VFIO_DEVICE_DETACH_IOMMUFD_PT		_IO(VFIO_TYPE, VFIO_BASE + 21)
 
 /**
  * VFIO_DEVICE_GET_INFO - _IOR(VFIO_TYPE, VFIO_BASE + 7,

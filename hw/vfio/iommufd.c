@@ -202,13 +202,12 @@ static void
 __vfio_device_detach_container(VFIODevice *vbasedev,
                                VFIOIOMMUFDContainer *container, Error **errp)
 {
-    struct vfio_device_attach_iommufd_pt detach_data = {
+    struct vfio_device_detach_iommufd_pt detach_data = {
         .argsz = sizeof(detach_data),
         .flags = 0,
-        .pt_id = IOMMUFD_INVALID_ID,
     };
 
-    if (ioctl(vbasedev->fd, VFIO_DEVICE_ATTACH_IOMMUFD_PT, &detach_data)) {
+    if (ioctl(vbasedev->fd, VFIO_DEVICE_DETACH_IOMMUFD_PT, &detach_data)) {
         error_setg_errno(errp, errno, "detach %s from ioas id=%d failed",
                          vbasedev->name, container->ioas_id);
     }
