@@ -1835,6 +1835,23 @@ static void pc_machine_set_max_fw_size(Object *obj, Visitor *v,
     pcms->max_fw_size = value;
 }
 
+#define DEFAULT_KVM_TYPE "normal"
+#define PROTECTED_KVM_TYPE "protected"
+
+static char *pc_machine_get_kvm_type(Object *obj, Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+
+    return g_strdup(pcms->kvm_type);
+}
+
+static void pc_machine_set_kvm_type(Object *obj, const char *value, Error **errp)
+{
+    PCMachineState *pcms = PC_MACHINE(obj);
+
+    g_free(pcms->kvm_type);
+    pcms->kvm_type = g_strdup(value);
+}
 
 static void pc_machine_initfn(Object *obj)
 {
@@ -1858,12 +1875,21 @@ static void pc_machine_initfn(Object *obj)
     pcms->hpet_enabled = true;
 #endif
     pcms->default_bus_bypass_iommu = false;
+    pcms->kvm_type = g_strdup(DEFAULT_KVM_TYPE);
 
     pc_system_flash_create(pcms);
     pcms->pcspk = isa_new(TYPE_PC_SPEAKER);
     object_property_add_alias(OBJECT(pcms), "pcspk-audiodev",
                               OBJECT(pcms->pcspk), "audiodev");
     cxl_machine_init(obj, &pcms->cxl_devices_state);
+
+    object_property_add_str(obj, "kvm-type",
+                            pc_machine_get_kvm_type, pc_machine_set_kvm_type);
+    object_property_set_description(obj, "kvm-type",
+                                    "Specifies the KVM virtualization mode."
+                                    " Defaults to 'normal'. Setting this to"
+                                    " 'protected' will enable restricted memory"
+                                    " support for confidential VMs.");
 }
 
 int pc_machine_kvm_type(MachineState *machine, const char *kvm_type)
@@ -1876,6 +1902,9 @@ int pc_machine_kvm_type(MachineState *machine, const char *kvm_type)
         xen_xenstore_create();
     }
 #endif
+    if (kvm_type && !strcmp(kvm_type, PROTECTED_KVM_TYPE)) {
+        return 1;
+    }
     return 0;
 }
 
@@ -1965,6 +1994,7 @@ static void pc_machine_class_init(ObjectClass *oc, void *data)
     mc->nvdimm_supported = true;
     mc->smp_props.dies_supported = true;
     mc->default_ram_id = "pc.ram";
+    mc->kvm_type = pc_machine_kvm_type;
 
     object_class_property_add(oc, PC_MACHINE_MAX_RAM_BELOW_4G, "size",
         pc_machine_get_max_ram_below_4g, pc_machine_set_max_ram_below_4g,
