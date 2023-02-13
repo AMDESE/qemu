@@ -391,16 +391,6 @@ sev_common_set_sev_device(Object *obj, const char *value, Error **errp)
     SEV_COMMON(obj)->sev_device = g_strdup(value);
 }
 
-static bool sev_common_get_upm_mode(Object *obj, Error **errp)
-{
-    return SEV_COMMON(obj)->upm_mode;
-}
-
-static void sev_common_set_upm_mode(Object *obj, bool value, Error **errp)
-{
-    SEV_COMMON(obj)->upm_mode = value;
-}
-
 static char *
 sev_common_get_discard(Object *obj, Error **errp)
 {
@@ -421,11 +411,6 @@ sev_common_class_init(ObjectClass *oc, void *data)
                                   sev_common_set_sev_device);
     object_class_property_set_description(oc, "sev-device",
             "SEV device to use");
-    object_class_property_add_bool(oc, "upm-mode",
-                                   sev_common_get_upm_mode,
-                                   sev_common_set_upm_mode);
-    object_class_property_set_description(oc, "upm-mode",
-            "enable Unmapped Private Memory mode");
     object_class_property_add_str(oc, "discard",
                                   sev_common_get_discard,
                                   sev_common_set_discard);
@@ -1668,6 +1653,8 @@ sev_vm_state_change(void *opaque, bool running, RunState state)
 int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
     SevCommonState *sev_common = SEV_COMMON(cgs);
+    MachineState *ms = MACHINE(qdev_get_machine());
+    MachineClass *mc = MACHINE_GET_CLASS(ms);
     char *devname;
     int ret, fw_error, cmd;
     uint32_t ebx;
@@ -1762,8 +1749,18 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         goto err;
     }
 
+    if (object_property_find(OBJECT(current_machine), "kvm-type")) {
+        g_autofree char *kvm_type = object_property_get_str(OBJECT(current_machine),
+							    "kvm-type",
+							    &error_abort);
+        sev_common->upm_mode = mc->kvm_type(ms, kvm_type) ? true : false;
+    } else {
+        sev_common->upm_mode = false;
+    }
+
     if (sev_common->upm_mode) {
         bool has_upm = kvm_check_extension(kvm_state, KVM_CAP_VM_TYPES) & BIT(KVM_X86_PROTECTED_VM);
+        X86MachineState *x86ms = X86_MACHINE(ms);
 
         if (!has_upm) {
             error_setg(errp, "%s: KVM_CAP_UNMAPPED_PRIVATE_MEM not supported",
@@ -1771,6 +1768,8 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
             goto err;
         }
 
+	/* Disable SMM for protected_vm */
+        x86ms->smm = ON_OFF_AUTO_OFF;
         g_warning("UPM mode enabled, discard=%s", sev_common->discard);
         cgs->use_private_memslots = true;
 

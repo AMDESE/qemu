@@ -836,8 +836,6 @@
 # @reduced-phys-bits: number of bits in physical addresses that become
 #                     unavailable when SEV is enabled
 #
-# @upm-mode: configure Unmapped Private Memory mode
-#
 # @discard: configure how discarding is handled for memory after
 #           shared<->private conversions: options are "both" (default),
 #           "shared", "private", or "none".
@@ -848,7 +846,6 @@
   'data': { '*sev-device': 'str',
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
-            '*upm-mode': 'bool',
             '*discard': 'str' } }
 
 ##
