@@ -1823,6 +1823,8 @@ typedef struct CPUArchState {
     TPRAccess tpr_access_type;
 
     unsigned nr_dies;
+
+    uint64_t kvm_msr_migration_control;
 } CPUX86State;
 
 struct kvm_msrs;
