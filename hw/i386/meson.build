@@ -26,8 +26,8 @@ i386_ss.add(when: 'CONFIG_PC', if_true: files(
   'pc_sysfw.c',
   'acpi-build.c',
   'port92.c'))
-i386_ss.add(when: 'CONFIG_X86_FW_OVMF', if_true: files('pc_sysfw_ovmf.c'),
-                                        if_false: files('pc_sysfw_ovmf-stubs.c'))
+i386_ss.add(when: 'CONFIG_X86_FW_GUID_PARSE', if_true: files('pc_sysfw_guid_parse.c'),
+                                              if_false: files('pc_sysfw_guid_parse-stubs.c'))
 
 subdir('kvm')
 subdir('xen')
