@@ -1624,7 +1624,7 @@ snp_populate_metadata_pages(OvmfSevMetadata *metadata)
             exit(1);
         }
 
-        if (type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
+        if (desc->type == SEV_DESC_TYPE_CPUID) {
             ret = snp_launch_update_cpuid(desc->base, hva, desc->len, VMPL0);
         } else {
             ret = snp_launch_update_data(desc->base, hva, desc->len, type, VMPL0);
