@@ -2849,6 +2849,7 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
 
 int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private, bool preserve)
 {
+    ConfidentialGuestSupport *cgs;
     MemoryRegionSection section;
     void *addr;
     RAMBlock *rb;
@@ -2871,9 +2872,8 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private, bool p
     }
 
 
-    if (object_dynamic_cast(section.mr->owner,
-                            TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
-        ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
+    cgs = MACHINE(qdev_get_machine())->cgs;
+    if (cgs && cgs->use_private_memslots) {
         addr = memory_region_get_ram_ptr(section.mr) +
             section.offset_within_region;
         rb = qemu_ram_block_from_host(addr, false, &offset);
