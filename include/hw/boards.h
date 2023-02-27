@@ -335,6 +335,7 @@ struct MachineState {
     bool usb;
     bool usb_disabled;
     char *firmware;
+    char *svsm;
     bool iommu;
     bool suppress_vmdesc;
     bool enable_graphics;

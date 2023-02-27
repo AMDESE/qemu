@@ -109,6 +109,10 @@ typedef enum X86Seg {
 #define DESC_E_MASK     (1 << 10) /* data: expansion direction */
 #define DESC_W_MASK     (1 << 9)  /* data: writable */
 
+#define DESC_FLAGS_MASK (DESC_G_MASK | DESC_B_MASK | DESC_L_MASK | DESC_AVL_MASK | \
+                         DESC_P_MASK | DESC_DPL_MASK | DESC_S_MASK |               \
+                         DESC_TYPE_MASK)
+
 #define DESC_TSS_BUSY_MASK (1 << 9)
 
 /* eflags masks */
