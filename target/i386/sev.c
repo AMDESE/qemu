@@ -38,6 +38,7 @@
 #include "exec/confidential-guest-support.h"
 #include "hw/i386/pc.h"
 #include "exec/address-spaces.h"
+#include "qemu/queue.h"
 
 /* hard code sha256 digest size */
 #define HASH_SIZE 32
@@ -133,6 +134,17 @@ struct SevSnpGuestState {
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
 #define DEFAULT_SEV_SNP_POLICY  0x30000
+
+typedef struct SevLaunchUpdateData {
+    QTAILQ_ENTRY(SevLaunchUpdateData) next;
+
+    hwaddr   gpa;
+    void     *hva;
+    uint64_t len;
+    int      type;
+} SevLaunchUpdateData;
+
+static QTAILQ_HEAD(, SevLaunchUpdateData) launch_update;
 
 #define SEV_INFO_BLOCK_GUID     "00f771de-1a7e-4fcb-890e-68c77e2fb44e"
 typedef struct __attribute__((__packed__)) SevInfoBlock {
@@ -1090,6 +1102,8 @@ sev_snp_launch_start(SevSnpGuestState *sev_snp_guest)
         return 1;
     }
 
+    QTAILQ_INIT(&launch_update);
+
     sev_set_guest_state(sev_common, SEV_STATE_LAUNCH_UPDATE);
 
     return 0;
@@ -1141,6 +1155,34 @@ out:
     return ret;
 }
 
+static void
+sev_snp_cpuid_report_mismatches(SnpCpuidInfo *old,
+                                SnpCpuidInfo *new)
+{
+    size_t i;
+
+    if (old->count != new->count) {
+        error_report("SEV-SNP: CPUID validation failed due to count mismatch, provided: %d, expected: %d",
+                     old->count, new->count);
+    }
+
+    for (i = 0; i < old->count; i++) {
+        SnpCpuidFunc *old_func, *new_func;
+
+        old_func = &old->entries[i];
+        new_func = &new->entries[i];
+
+        if (memcmp(old_func, new_func, sizeof(SnpCpuidFunc))) {
+            error_report("SEV-SNP: CPUID validation failed for function 0x%x, index: 0x%x.\n"
+                         "provided: eax:0x%08x, ebx: 0x%08x, ecx: 0x%08x, edx: 0x%08x\n"
+                         "expected: eax:0x%08x, ebx: 0x%08x, ecx: 0x%08x, edx: 0x%08x",
+                         old_func->eax_in, old_func->ecx_in,
+                         old_func->eax, old_func->ebx, old_func->ecx, old_func->edx,
+                         new_func->eax, new_func->ebx, new_func->ecx, new_func->edx);
+        }
+    }
+}
+
 static const char *
 snp_page_type_to_str(int type)
 {
@@ -1156,29 +1198,41 @@ snp_page_type_to_str(int type)
 }
 
 static int
-sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, hwaddr gpa, uint8_t *addr,
-                      uint64_t len, int type)
+sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, SevLaunchUpdateData *data)
 {
     int ret, fw_error;
+    SnpCpuidInfo snp_cpuid_info;
     struct kvm_sev_snp_launch_update update = {0};
 
-    if (!addr || !len) {
-        error_report("%s: SNP_LAUNCH_UPDATE called with invalid address / length: %lx / %lx",
-                __func__, gpa, len);
+    if (!data->hva || !data->len) {
+        error_report("%s: SNP_LAUNCH_UPDATE called with invalid address / length: %p / %lx",
+                __func__, data->hva, data->len);
         return 1;
     }
 
-    update.uaddr = (__u64)(unsigned long)addr;
-    update.start_gfn = gpa >> TARGET_PAGE_BITS;
-    update.len = len;
-    update.page_type = type;
-    trace_kvm_sev_snp_launch_update(addr, gpa, len, snp_page_type_to_str(type));
+    if (data->type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
+        /* Save a copy for comparison in case the LAUNCH_UPDATE fails */
+        memcpy(&snp_cpuid_info, data->hva, sizeof(snp_cpuid_info));
+    }
+
+    update.uaddr = (__u64)(unsigned long)data->hva;
+    update.start_gfn = data->gpa >> TARGET_PAGE_BITS;
+    update.len = data->len;
+    update.page_type = data->type;
+
+    trace_kvm_sev_snp_launch_update(data->hva, data->gpa, data->len,
+                                    snp_page_type_to_str(data->type));
     ret = sev_ioctl(SEV_COMMON(sev_snp_guest)->sev_fd,
                     KVM_SEV_SNP_LAUNCH_UPDATE,
                     &update, &fw_error);
     if (ret) {
         error_report("%s: SNP_LAUNCH_UPDATE ret=%d fw_error=%d '%s'",
                 __func__, ret, fw_error, fw_error_to_str(fw_error));
+
+        if (data->type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
+            sev_snp_cpuid_report_mismatches(&snp_cpuid_info, data->hva);
+            error_report("SEV-SNP: failed update CPUID page");
+        }
     }
 
     return ret;
@@ -1377,37 +1431,24 @@ sev_snp_cpuid_info_fill(SnpCpuidInfo *snp_cpuid_info,
     return 0;
 }
 
-static void
-sev_snp_cpuid_report_mismatches(SnpCpuidInfo *old,
-                                SnpCpuidInfo *new)
+static int
+snp_launch_update_data(uint64_t gpa, void *hva, uint32_t len, int type)
 {
-    size_t i;
+    SevLaunchUpdateData *data;
 
-    if (old->count != new->count) {
-        error_report("SEV-SNP: CPUID validation failed due to count mismatch, provided: %d, expected: %d",
-                     old->count, new->count);
-    }
+    data = g_new0(SevLaunchUpdateData, 1);
+    data->gpa = gpa;
+    data->hva = hva;
+    data->len = len;
+    data->type = type;
 
-    for (i = 0; i < old->count; i++) {
-        SnpCpuidFunc *old_func, *new_func;
+    QTAILQ_INSERT_TAIL(&launch_update, data, next);
 
-        old_func = &old->entries[i];
-        new_func = &new->entries[i];
-
-        if (memcmp(old_func, new_func, sizeof(SnpCpuidFunc))) {
-            error_report("SEV-SNP: CPUID validation failed for function 0x%x, index: 0x%x.\n"
-                         "provided: eax:0x%08x, ebx: 0x%08x, ecx: 0x%08x, edx: 0x%08x\n"
-                         "expected: eax:0x%08x, ebx: 0x%08x, ecx: 0x%08x, edx: 0x%08x",
-                         old_func->eax_in, old_func->ecx_in,
-                         old_func->eax, old_func->ebx, old_func->ecx, old_func->edx,
-                         new_func->eax, new_func->ebx, new_func->ecx, new_func->edx);
-        }
-    }
+    return 0;
 }
 
 static int
-snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint32_t cpuid_addr,
-                            void *hva, uint32_t cpuid_len)
+snp_launch_update_cpuid(uint32_t cpuid_addr, void *hva, uint32_t cpuid_len)
 {
     KvmCpuidInfo kvm_cpuid_info = {0};
     SnpCpuidInfo snp_cpuid_info;
@@ -1437,15 +1478,7 @@ snp_launch_update_cpuid(SevSnpGuestState *sev_snp, uint32_t cpuid_addr,
 
     memcpy(hva, &snp_cpuid_info, sizeof(snp_cpuid_info));
 
-    ret = sev_snp_launch_update(sev_snp, cpuid_addr, hva, cpuid_len,
-                                    KVM_SEV_SNP_PAGE_TYPE_CPUID);
-    if (ret) {
-        sev_snp_cpuid_report_mismatches(&snp_cpuid_info, hva);
-        error_report("SEV-SNP: failed update CPUID page");
-        return 1;
-    }
-
-    return 0;
+    return snp_launch_update_data(cpuid_addr, hva, cpuid_len, KVM_SEV_SNP_PAGE_TYPE_CPUID);
 }
 
 static int
@@ -1462,7 +1495,7 @@ snp_launch_update_kernel_hashes(SevSnpGuestState *sev_snp, uint32_t addr,
                sizeof(*sev_snp->kernel_hashes_data));
         type = KVM_SEV_SNP_PAGE_TYPE_NORMAL;
     }
-    return sev_snp_launch_update(sev_snp, addr, hva, len, type);
+    return snp_launch_update_data(addr, hva, len, type);
 }
 
 static int
@@ -1479,8 +1512,7 @@ snp_metadata_desc_to_page_type(int desc_type)
 }
 
 static void
-snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
-                            OvmfSevMetadata *metadata)
+snp_populate_metadata_pages(SevSnpGuestState *sev_snp, OvmfSevMetadata *metadata)
 {
     OvmfSevMetadataDesc *desc;
     int type, ret, i;
@@ -1504,13 +1536,12 @@ snp_populate_metadata_pages(SevSnpGuestState *sev_snp,
         }
 
         if (type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
-            ret = snp_launch_update_cpuid(sev_snp, desc->base, hva, desc->len);
+            ret = snp_launch_update_cpuid(desc->base, hva, desc->len);
         } else if (desc->type == SEV_DESC_TYPE_SNP_KERNEL_HASHES) {
             ret = snp_launch_update_kernel_hashes(sev_snp, desc->base, hva,
                                                   desc->len);
         } else {
-            ret = sev_snp_launch_update(sev_snp, desc->base, hva, desc->len,
-                                        type);
+            ret = snp_launch_update_data(desc->base, hva, desc->len, type);
         }
 
         if (ret) {
@@ -1527,6 +1558,7 @@ sev_snp_launch_finish(SevSnpGuestState *sev_snp)
     int ret, error;
     Error *local_err = NULL;
     OvmfSevMetadata *metadata;
+    SevLaunchUpdateData *data;
     struct kvm_sev_snp_launch_finish *finish = &sev_snp->kvm_finish_conf;
 
     /*
@@ -1542,6 +1574,13 @@ sev_snp_launch_finish(SevSnpGuestState *sev_snp)
 
     /* Populate all the metadata pages */
     snp_populate_metadata_pages(sev_snp, metadata);
+
+    QTAILQ_FOREACH(data, &launch_update, next) {
+        ret = sev_snp_launch_update(sev_snp, data);
+        if (ret) {
+            exit(1);
+        }
+    }
 
     trace_kvm_sev_snp_launch_finish(sev_snp->id_block, sev_snp->id_auth,
                                     sev_snp->host_data);
@@ -1738,8 +1777,8 @@ sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
         int ret;
 
         if (sev_snp_enabled()) {
-            ret = sev_snp_launch_update(SEV_SNP_GUEST(sev_common), gpa, ptr,
-                                        len, KVM_SEV_SNP_PAGE_TYPE_NORMAL);
+            ret = snp_launch_update_data(gpa, ptr, len,
+                                         KVM_SEV_SNP_PAGE_TYPE_NORMAL);
         } else {
             ret = sev_launch_update_data(SEV_GUEST(sev_common), ptr, len);
         }
