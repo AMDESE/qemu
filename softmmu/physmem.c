@@ -3686,15 +3686,18 @@ int ram_block_convert_range(RAMBlock *rb, uint64_t start, size_t length,
     int fd;
 
     if (!rb || rb->restricted_fd <= 0) {
+        error_report("Backend ramblock not initialized as expected.");
         return -1;
     }
 
     if (!QEMU_PTR_IS_ALIGNED(start, rb->page_size) ||
         !QEMU_PTR_IS_ALIGNED(length, rb->page_size)) {
+        error_report("Start/length is not aligned with backend page size (0x%lx)", rb->page_size);
         return -1;
     }
 
     if (length > rb->max_length) {
+        error_report("Length exceeds max length (0x%lx)", rb->max_length);
         return -1;
     }
 
