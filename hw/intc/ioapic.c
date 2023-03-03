@@ -433,8 +433,9 @@ static void ioapic_machine_done_notify(Notifier *notifier, void *data)
                                         machine_done);
 
     if (kvm_irqchip_is_split()) {
-        X86IOMMUState *iommu = x86_iommu_get_default();
-        if (iommu) {
+        X86IOMMUState *iommu;
+
+        QLIST_FOREACH(iommu, x86_iommu_get_iommu_list_head(), next) {
             /* Register this IOAPIC with IOMMU IEC notifier, so that
              * when there are IR invalidates, we can be notified to
              * update kernel IR cache. */

@@ -2136,14 +2136,13 @@ dmar_host_bridges(Object *obj, void *opaque)
  */
 static void
 build_dmar_q35(GArray *table_data, BIOSLinker *linker, const char *oem_id,
-               const char *oem_table_id)
+               const char *oem_table_id, X86IOMMUState *iommu)
 {
     uint8_t dmar_flags = 0;
     uint8_t rsvd10[10] = {};
     /* Root complex IOAPIC uses one path only */
     const size_t ioapic_scope_size = 6 /* device scope structure */ +
                                      2 /* 1 path entry */;
-    X86IOMMUState *iommu = x86_iommu_get_default();
     IntelIOMMUState *intel_iommu = INTEL_IOMMU_DEVICE(iommu);
     GArray *scope_blob = g_array_new(false, true, 1);
 
@@ -2657,9 +2656,13 @@ void acpi_build(AcpiBuildTables *tables, MachineState *machine)
         build_ivrs(tables_blob, tables->linker, x86ms->oem_id,
                    x86ms->oem_table_id);
     } else if (object_dynamic_cast(OBJECT(iommu), TYPE_INTEL_IOMMU_DEVICE)) {
+        X86IOMMUState *iommu;
+
         acpi_add_table(table_offsets, tables_blob);
-        build_dmar_q35(tables_blob, tables->linker, x86ms->oem_id,
-                       x86ms->oem_table_id);
+        QLIST_FOREACH(iommu, x86_iommu_get_iommu_list_head(), next) {
+            build_dmar_q35(tables_blob, tables->linker, x86ms->oem_id,
+                           x86ms->oem_table_id, iommu);
+        }
     } else if (object_dynamic_cast(OBJECT(iommu), TYPE_VIRTIO_IOMMU_PCI)) {
         PCIDevice *pdev = PCI_DEVICE(iommu);
 
