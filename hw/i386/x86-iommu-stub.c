@@ -27,11 +27,6 @@ void x86_iommu_iec_register_notifier(X86IOMMUState *iommu,
 {
 }
 
-X86IOMMUState *x86_iommu_get_default(void)
-{
-    return NULL;
-}
-
 bool x86_iommu_ir_supported(X86IOMMUState *s)
 {
     return false;
