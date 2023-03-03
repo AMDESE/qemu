@@ -92,19 +92,6 @@ static void x86_iommu_add(X86IOMMUState *iommu)
     x86_iommus_count++;
 }
 
-X86IOMMUState *x86_iommu_get_default(void)
-{
-    MachineState *ms = MACHINE(qdev_get_machine());
-    PCMachineState *pcms =
-        PC_MACHINE(object_dynamic_cast(OBJECT(ms), TYPE_PC_MACHINE));
-
-    if (pcms &&
-        object_dynamic_cast(OBJECT(pcms->iommu), TYPE_X86_IOMMU_DEVICE)) {
-        return X86_IOMMU_DEVICE(pcms->iommu);
-    }
-    return NULL;
-}
-
 static void x86_iommu_realize(DeviceState *dev, Error **errp)
 {
     X86IOMMUState *x86_iommu = X86_IOMMU_DEVICE(dev);

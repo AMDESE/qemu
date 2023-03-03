@@ -5627,9 +5627,9 @@ uint64_t kvm_swizzle_msi_ext_dest_id(uint64_t address)
 int kvm_arch_fixup_msi_route(struct kvm_irq_routing_entry *route,
                              uint64_t address, uint32_t data, PCIDevice *dev)
 {
-    X86IOMMUState *iommu = x86_iommu_get_default();
+    X86IOMMUState *iommu;
 
-    if (iommu) {
+    QLIST_FOREACH(iommu, x86_iommu_get_iommu_list_head(), next) {
         X86IOMMUClass *class = X86_IOMMU_DEVICE_GET_CLASS(iommu);
 
         if (class->int_remap) {
@@ -5748,8 +5748,9 @@ int kvm_arch_add_msi_route_post(struct kvm_irq_routing_entry *route,
     if (!notify_list_inited) {
         /* For the first time we do add route, add ourselves into
          * IOMMU's IEC notify list if needed. */
-        X86IOMMUState *iommu = x86_iommu_get_default();
-        if (iommu) {
+        X86IOMMUState *iommu;
+
+        QLIST_FOREACH(iommu, x86_iommu_get_iommu_list_head(), next) {
             x86_iommu_iec_register_notifier(iommu,
                                             kvm_update_msi_routes_all,
                                             NULL);

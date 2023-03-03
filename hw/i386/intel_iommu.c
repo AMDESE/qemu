@@ -6061,26 +6061,33 @@ static void vtd_refresh_capability_reg(IntelIOMMUState *s)
 
 static int vtd_machine_done_notify_one(Object *child, void *unused)
 {
-    IntelIOMMUState *iommu = INTEL_IOMMU_DEVICE(x86_iommu_get_default());
+    IntelIOMMUState *iommu;
+    X86IOMMUState *s;
 
-    /*
-     * We hard-coded here because vfio-pci is the only special case
-     * here.  Let's be more elegant in the future when we can, but so
-     * far there seems to be no better way.
-     */
-    if (object_dynamic_cast(child, "vfio-pci") && !iommu->caching_mode) {
-        vtd_panic_require_caching_mode();
+    QLIST_FOREACH(s, x86_iommu_get_iommu_list_head(), next) {
+	if (object_dynamic_cast(OBJECT(s), TYPE_INTEL_IOMMU_DEVICE)) {
+            iommu = INTEL_IOMMU_DEVICE(s);
+
+            /*
+             * We hard-coded here because vfio-pci is the only special case
+             * here.  Let's be more elegant in the future when we can, but so
+             * far there seems to be no better way.
+             */
+            if (object_dynamic_cast(child, "vfio-pci") && !iommu->caching_mode) {
+                vtd_panic_require_caching_mode();
+            }
+        }
+        vtd_iommu_lock(iommu);
+        iommu->cap = iommu->host_cap & iommu->cap;
+        iommu->ecap = iommu->host_ecap & iommu->ecap;
+        if (!iommu->cap_finalized) {
+            iommu->cap_finalized = true;
+        }
+
+        vtd_refresh_capability_reg(iommu);
+        vtd_iommu_unlock(iommu);
     }
 
-    vtd_iommu_lock(iommu);
-    iommu->cap = iommu->host_cap & iommu->cap;
-    iommu->ecap = iommu->host_ecap & iommu->ecap;
-    if (!iommu->cap_finalized) {
-        iommu->cap_finalized = true;
-    }
-
-    vtd_refresh_capability_reg(iommu);
-    vtd_iommu_unlock(iommu);
     return 0;
 }
 

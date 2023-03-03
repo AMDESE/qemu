@@ -1915,17 +1915,21 @@ static void pc_machine_wakeup(MachineState *machine)
 
 static bool pc_hotplug_allowed(MachineState *ms, DeviceState *dev, Error **errp)
 {
-    X86IOMMUState *iommu = x86_iommu_get_default();
+    X86IOMMUState *iommu;
     IntelIOMMUState *intel_iommu;
 
-    if (iommu &&
-        object_dynamic_cast((Object *)iommu, TYPE_INTEL_IOMMU_DEVICE) &&
-        object_dynamic_cast((Object *)dev, "vfio-pci")) {
-        intel_iommu = INTEL_IOMMU_DEVICE(iommu);
-        if (!intel_iommu->caching_mode) {
-            error_setg(errp, "Device assignment is not allowed without "
-                       "enabling caching-mode=on for Intel IOMMU.");
-            return false;
+    QLIST_FOREACH(iommu, x86_iommu_get_iommu_list_head(), next) {
+        if (object_dynamic_cast(OBJECT(iommu), TYPE_INTEL_IOMMU_DEVICE)) {
+
+            if (object_dynamic_cast((Object *)iommu, TYPE_INTEL_IOMMU_DEVICE) &&
+                object_dynamic_cast((Object *)dev, "vfio-pci")) {
+                intel_iommu = INTEL_IOMMU_DEVICE(iommu);
+                if (!intel_iommu->caching_mode) {
+                    error_setg(errp, "Device assignment is not allowed without "
+                               "enabling caching-mode=on for Intel IOMMU.");
+                    return false;
+                }
+            }
         }
     }
 

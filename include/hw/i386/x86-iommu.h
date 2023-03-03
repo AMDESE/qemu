@@ -140,12 +140,6 @@ QLIST_HEAD(X86IOMMUList, X86IOMMUState);
 X86IOMMUList *x86_iommu_get_iommu_list_head(void);
 
 /**
- * x86_iommu_get_default - get default IOMMU device
- * @return: pointer to default IOMMU device
- */
-X86IOMMUState *x86_iommu_get_default(void);
-
-/**
  * x86_iommu_iec_register_notifier - register IEC (Interrupt Entry
  *                                   Cache) notifiers
  * @iommu: IOMMU device to register
