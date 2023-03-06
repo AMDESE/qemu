@@ -4251,3 +4251,8 @@ int kvm_create_guest_memfd(uint64_t size, uint64_t flags, Error **errp)
 
     return fd;
 }
+
+bool kvm_has_restricted_memory(void)
+{
+    return current_machine->require_guest_memfd;
+}

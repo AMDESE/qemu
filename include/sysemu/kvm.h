@@ -545,4 +545,5 @@ int kvm_set_memory_attributes_private(hwaddr start, hwaddr size);
 int kvm_set_memory_attributes_shared(hwaddr start, hwaddr size);
 
 int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private);
+bool kvm_has_restricted_memory(void);
 #endif
