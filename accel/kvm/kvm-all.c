@@ -4253,3 +4253,19 @@ void query_stats_schemas_cb(StatsSchemaList **result, Error **errp)
         run_on_cpu(first_cpu, query_stats_schema_vcpu, RUN_ON_CPU_HOST_PTR(&stats_args));
     }
 }
+
+bool kvm_has_restricted_memory(void)
+{
+#if defined(TARGET_X86_64)
+    if (object_property_find(OBJECT(current_machine), "kvm-type")) {
+        MachineClass *mc = MACHINE_GET_CLASS(current_machine);
+        g_autofree char *kvm_type;
+
+        kvm_type = object_property_get_str(OBJECT(current_machine), "kvm-type", &error_abort);
+
+        return mc->kvm_type(current_machine, kvm_type) ? true : false;
+    }
+#endif
+
+    return false;
+}
