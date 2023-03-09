@@ -77,6 +77,21 @@ void x86_iommu_irq_to_msi_message(X86IOMMUIrq *irq, MSIMessage *msg_out)
     msg_out->data = msg.msi_data;
 }
 
+static X86IOMMUList x86_iommus;
+static __u32 x86_iommus_count;
+
+X86IOMMUList *x86_iommu_get_iommu_list_head(void)
+{
+    return &x86_iommus;
+}
+
+static void x86_iommu_add(X86IOMMUState *iommu)
+{
+    QLIST_INSERT_HEAD(&x86_iommus, iommu, next);
+    iommu->index = x86_iommus_count;
+    x86_iommus_count++;
+}
+
 X86IOMMUState *x86_iommu_get_default(void)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
@@ -120,6 +135,8 @@ static void x86_iommu_realize(DeviceState *dev, Error **errp)
         return;
     }
 
+    x86_iommu_add(x86_iommu);
+
     if (x86_class->realize) {
         x86_class->realize(dev, errp);
     }
@@ -130,6 +147,7 @@ static Property x86_iommu_properties[] = {
                             intr_supported, ON_OFF_AUTO_AUTO),
     DEFINE_PROP_BOOL("device-iotlb", X86IOMMUState, dt_supported, false),
     DEFINE_PROP_BOOL("pt", X86IOMMUState, pt_supported, true),
+    DEFINE_PROP_UINT32("iommu-id", X86IOMMUState, id, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
