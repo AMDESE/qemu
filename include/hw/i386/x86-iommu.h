@@ -31,6 +31,7 @@ OBJECT_DECLARE_TYPE(X86IOMMUState, X86IOMMUClass, X86_IOMMU_DEVICE)
 
 typedef struct X86IOMMUIrq X86IOMMUIrq;
 typedef struct X86IOMMU_MSIMessage X86IOMMU_MSIMessage;
+typedef struct X86IOMMUList X86IOMMUList;
 
 struct X86IOMMUClass {
     SysBusDeviceClass parent;
@@ -64,6 +65,10 @@ struct X86IOMMUState {
     OnOffAuto intr_supported;   /* Whether vIOMMU supports IR */
     bool dt_supported;          /* Whether vIOMMU supports DT */
     bool pt_supported;          /* Whether vIOMMU supports pass-through */
+    QLIST_ENTRY(X86IOMMUState) next;
+    PCIHostDeviceAddress host;
+    uint32_t id;
+    uint32_t index;
     QLIST_HEAD(, IEC_Notifier) iec_notifiers; /* IEC notify list */
 };
 
@@ -125,6 +130,14 @@ struct X86IOMMU_MSIMessage {
         uint32_t msi_data;
     };
 };
+
+QLIST_HEAD(X86IOMMUList, X86IOMMUState);
+
+/*
+ * x86_iommu_get_iommu_list_head - get IOMMU list head
+ * @return: Pointer to IOMMU list head
+ */
+X86IOMMUList *x86_iommu_get_iommu_list_head(void);
 
 /**
  * x86_iommu_get_default - get default IOMMU device

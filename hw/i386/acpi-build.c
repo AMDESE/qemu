@@ -2360,6 +2360,7 @@ build_amd_iommu(GArray *table_data, AMDVIState *s, uint64_t efr, uint64_t efr2)
     struct ivhd_blob ivhd;
     int ivhd_table_len = 40;
 
+    ivhd.iommu_id = s->iommu.id;
     ivhd.blob = g_array_new(false, true, 1);
 
     /* IVHD definition - type 11h */
@@ -2482,8 +2483,7 @@ static
 void build_ivrs(GArray *table_data, BIOSLinker *linker, const char *oem_id,
                 const char *oem_table_id)
 {
-    uint64_t efr, efr2;
-    AMDVIState *s = AMD_IOMMU_DEVICE(x86_iommu_get_default());
+    X86IOMMUState *iommu;
     AcpiTable table = { .sig = "IVRS", .rev = 1, .oem_id = oem_id,
                         .oem_table_id = oem_table_id };
     acpi_table_begin(&table, table_data);
@@ -2498,16 +2498,21 @@ void build_ivrs(GArray *table_data, BIOSLinker *linker, const char *oem_id,
     /* reserved */
     build_append_int_noprefix(table_data, 0, 8);
 
+    QLIST_FOREACH(iommu, x86_iommu_get_iommu_list_head(), next) {
+        AMDVIState *s;
+        uint64_t efr, efr2;
 
-    if (object_dynamic_cast(OBJECT(&s->iommu), TYPE_AMD_IOMMU_DEVICE)) {
+        if (object_dynamic_cast(OBJECT(iommu), TYPE_AMD_IOMMU_DEVICE)) {
+            s = AMD_IOMMU_DEVICE(iommu);
 
-        efr = (1UL << 1) |  /* PPRSup */
-              (1UL << 4) |  /* GTSup */
-              (2UL << 10) | /* HATSup */
-              (2UL << 12) ; /* GATSup*/
-        efr2 = 0;
+            efr = (1UL << 1) |  /* PPRSup */
+                  (1UL << 4) |  /* GTSup */
+                  (2UL << 10) | /* HATSup */
+                  (2UL << 12) ; /* GATSup*/
+            efr2 = 0;
+        }
+        build_amd_iommu(table_data, s, efr, efr2);
     }
-    build_amd_iommu(table_data, s, efr, efr2);
 
     acpi_table_end(linker, &table);
 }
