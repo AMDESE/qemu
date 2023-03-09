@@ -2364,7 +2364,7 @@ static int vfio_pci_hot_reset(VFIOPCIDevice *vdev, bool single)
 
     reset = g_malloc0(sizeof(*reset) + (count * sizeof(*fds)));
     reset->argsz = sizeof(*reset) + (count * sizeof(*fds));
-    fds = &reset->group_fds[0];
+    fds = &reset->fds[0];
 
     /* Fill in group fds */
     QLIST_FOREACH(group, &vfio_group_list, next) {

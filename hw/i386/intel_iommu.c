@@ -2575,7 +2575,7 @@ static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
         return 0;
     }
     ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
-                                     idev->ioas_id, IOMMU_PGTBL_DATA_NONE,
+                                     idev->ioas_id, IOMMU_HWPT_TYPE_DEFAULT,
                                      0, NULL, s2_hwpt);
     if (!ret) {
         s->s2_hwpt = g_malloc0(sizeof(*s->s2_hwpt));
@@ -2617,7 +2617,7 @@ static int vtd_init_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt,
     }
 
     ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
-                                     s2_hwptid, IOMMU_PGTBL_DATA_VTD_S1,
+                                     s2_hwptid, IOMMU_HWPT_TYPE_VTD_S1,
                                      sizeof(vtd), &vtd, &hwpt_id);
     if (ret) {
         vtd_put_s2_hwpt(s);
@@ -3989,7 +3989,7 @@ static void vtd_invalidate_piotlb(VTDPASIDAddressSpace *vtd_pasid_as,
         goto out;
     }
     if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id,
-                                         IOMMU_PGTBL_DATA_VTD_S1,
+                                         IOMMU_HWPT_TYPE_VTD_S1,
                                          sizeof(*cache), cache)) {
         error_report("Cache flush failed");
     }
@@ -5381,7 +5381,7 @@ VTDAddressSpace *vtd_find_add_as(IntelIOMMUState *s, PCIBus *bus,
 }
 
 static bool vtd_check_hw_info(IntelIOMMUState *s,
-                                   struct iommu_device_info_vtd *vtd)
+                                   struct iommu_hw_info_vtd *vtd)
 {
     return !((s->aw_bits != ((vtd->cap_reg >> 16) & 0x3fULL)) ||
              ((s->host_cap ^ vtd->cap_reg) & VTD_CAP_MASK & s->host_cap) ||
@@ -5391,7 +5391,7 @@ static bool vtd_check_hw_info(IntelIOMMUState *s,
 
 /* Caller should hold iommu lock. */
 static bool vtd_sync_hw_info(IntelIOMMUState *s,
-                                  struct iommu_device_info_vtd *vtd)
+                                  struct iommu_hw_info_vtd *vtd)
 {
     uint64_t cap, ecap, addr_width, pasid_bits;
 
@@ -5431,15 +5431,15 @@ static bool vtd_sync_hw_info(IntelIOMMUState *s,
 static bool vtd_check_idev(IntelIOMMUState *s,
                                 IOMMUFDDevice *idev)
 {
-    struct iommu_device_info_vtd vtd;
-    enum iommu_device_data_type type = IOMMU_DEVICE_DATA_INTEL_VTD;
+    struct iommu_hw_info_vtd vtd;
+    enum iommu_hw_info_type type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
 
     if (iommufd_device_get_info(idev, &type, sizeof(vtd), &vtd)) {
         error_report("Failed to get IOMMU capability!!!");
         return false;
     }
 
-    if (type != IOMMU_DEVICE_DATA_INTEL_VTD) {
+    if (type != IOMMU_HW_INFO_TYPE_INTEL_VTD) {
         error_report("IOMMU hardware is not compatible!!!");
         return false;
     }

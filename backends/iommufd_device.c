@@ -54,10 +54,10 @@ int iommufd_device_detach_hwpt(IOMMUFDDevice *idev)
 }
 
 int iommufd_device_get_info(IOMMUFDDevice *idev,
-                            enum iommu_device_data_type *type,
+                            enum iommu_hw_info_type *type,
                             uint32_t len, void *data)
 {
-    struct iommu_device_info info = {
+    struct iommu_hw_info info = {
         .size = sizeof(info),
         .flags = 0,
         .dev_id = idev->dev_id,
@@ -67,11 +67,11 @@ int iommufd_device_get_info(IOMMUFDDevice *idev,
     };
     int ret;
 
-    ret = ioctl(idev->iommufd, IOMMU_DEVICE_GET_INFO, &info);
+    ret = ioctl(idev->iommufd, IOMMU_DEVICE_GET_HW_INFO, &info);
     if (ret) {
         error_report("Failed to get info %m");
     } else {
-        *type = info.out_device_type;
+        *type = info.out_data_type;
     }
 
     return ret;

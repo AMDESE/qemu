@@ -279,7 +279,7 @@ int iommufd_backend_invalidate_cache(int iommufd, uint32_t hwpt_id,
     struct iommu_hwpt_invalidate cache = {
         .size = sizeof(cache),
         .hwpt_id = hwpt_id,
-        .data_type = IOMMU_DEVICE_DATA_INTEL_VTD,
+        .data_type = IOMMU_HW_INFO_TYPE_INTEL_VTD,
         .data_len = len,
         .data_uptr = (uint64_t)data_ptr,
     };

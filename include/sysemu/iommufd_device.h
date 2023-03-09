@@ -66,7 +66,7 @@ int iommufd_device_attach_hwpt(IOMMUFDDevice *idev,
                                uint32_t hwpt_id);
 int iommufd_device_detach_hwpt(IOMMUFDDevice *idev);
 int iommufd_device_get_info(IOMMUFDDevice *idev,
-                            enum iommu_device_data_type *type,
+                            enum iommu_hw_info_type *type,
                             uint32_t len, void *data);
 void iommufd_device_init(void *_idev, size_t instance_size,
                          const char *mrtypename, int fd,

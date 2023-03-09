@@ -45,8 +45,8 @@ enum {
 	IOMMUFD_CMD_IOAS_UNMAP,
 	IOMMUFD_CMD_OPTION,
 	IOMMUFD_CMD_VFIO_IOAS,
-	IOMMUFD_CMD_DEVICE_GET_INFO,
 	IOMMUFD_CMD_HWPT_ALLOC,
+	IOMMUFD_CMD_DEVICE_GET_HW_INFO,
 	IOMMUFD_CMD_HWPT_INVALIDATE,
 };
 
@@ -349,83 +349,17 @@ struct iommu_vfio_ioas {
 #define IOMMU_VFIO_IOAS _IO(IOMMUFD_TYPE, IOMMUFD_CMD_VFIO_IOAS)
 
 /**
- * enum iommu_device_data_type - IOMMU hardware Data types
- * @IOMMU_DEVICE_DATA_INTEL_VTD: Intel VT-d iommu data type
+ * enum iommu_hwpt_type - IOMMU HWPT Type
+ * @IOMMU_HWPT_TYPE_DEFAULT: default
+ * @IOMMU_HWPT_TYPE_VTD_S1: Intel VT-d stage-1 page table
+ * @IOMMU_HWPT_TYPE_ARM_SMMUV3: ARM SMMUv3 stage-1 Context Descriptor
+ *                              table
  */
-enum iommu_device_data_type {
-	IOMMU_DEVICE_DATA_INTEL_VTD = 1,
+enum iommu_hwpt_type {
+	IOMMU_HWPT_TYPE_DEFAULT,
+	IOMMU_HWPT_TYPE_VTD_S1,
+	IOMMU_HWPT_TYPE_ARM_SMMUV3,
 };
-
-/**
- * struct iommu_device_info_vtd - Intel VT-d device info
- *
- * @flags: Must be set to 0
- * @__reserved: Must be 0
- * @cap_reg: Value of Intel VT-d capability register defined in chapter
- *	     11.4.2 of Intel VT-d spec.
- * @ecap_reg: Value of Intel VT-d capability register defined in chapter
- *	     11.4.3 of Intel VT-d spec.
- *
- * Intel hardware iommu capability.
- */
-struct iommu_device_info_vtd {
-	__u32 flags;
-	__u32 __reserved;
-	__aligned_u64 cap_reg;
-	__aligned_u64 ecap_reg;
-};
-
-/**
- * enum iommu_pgtbl_data_type - IOMMU Page Table User Data type
- * @IOMMU_PGTBL_DATA_NONE: no user data
- * @IOMMU_PGTBL_DATA_VTD_S1: Data for Intel VT-d stage-1 page table
- */
-enum iommu_pgtbl_data_type {
-	IOMMU_PGTBL_DATA_NONE,
-	IOMMU_PGTBL_DATA_VTD_S1,
-};
-
-/**
- * struct iommu_device_info - ioctl(IOMMU_DEVICE_GET_INFO)
- * @size: sizeof(struct iommu_device_info)
- * @flags: Must be 0
- * @dev_id: The device being attached to the IOMMU
- * @data_len: Input the type specific data buffer length in bytes
- * @data_ptr: Pointer to the type specific structure (e.g.
- *	      struct iommu_device_info_vtd)
- * @out_device_type: Output the underlying iommu hardware type, it is
- *		   one of enum iommu_device_data_type.
- * @__reserved: Must be 0
- * @out_pgtbl_type_bitmap: Output the supported page table type. Each
- *			   bit is defined in enum iommu_pgtbl_data_type.
- *
- * Query the hardware iommu capability for given device which has been
- * bound to iommufd. @data_len is set to be the size of the buffer to
- * type specific data and the data will be filled. Trailing bytes are
- * zeroed if the user buffer is larger than the data kernel has.
- *
- * The type specific data would be used to sync capability between the
- * vIOMMU and the hardware IOMMU, also for the availabillity checking of
- * iommu hardware features like dirty page tracking in I/O page table.
- *
- * The @out_device_type will be filled if the ioctl succeeds. It would
- * be used to decode the data filled in the buffer pointed by @data_ptr.
- *
- * @out_pgtbl_type_bitmap tells the userspace the supported page tables.
- * This differs per @out_device_type. Userspace should check it before
- * allocating hw_pagetable in userspace.
- */
-struct iommu_device_info {
-	__u32 size;
-	__u32 flags;
-	__u32 dev_id;
-	__u32 data_len;
-	__aligned_u64 data_ptr;
-	__u32 out_device_type;
-	__u32 __reserved;
-	__aligned_u64 out_pgtbl_type_bitmap;
-};
-#define IOMMU_DEVICE_GET_INFO _IO(IOMMUFD_TYPE, IOMMUFD_CMD_DEVICE_GET_INFO)
 
 /**
  * enum iommu_hwpt_intel_vtd_flags - Intel VT-d stage-1 page
@@ -451,13 +385,13 @@ enum iommu_hwpt_intel_vtd_flags {
 
 /**
  * struct iommu_hwpt_intel_vtd - Intel VT-d specific user-managed
- *				 stage-1 page table info
+ *                               stage-1 page table info
  * @flags: Combination of enum iommu_hwpt_intel_vtd_flags
  * @pgtbl_addr: The base address of the user-managed stage-1 page table.
  * @pat: Page attribute table data to compute effective memory type
  * @emt: Extended memory type
  * @addr_width: The address width of the untranslated addresses that are
- *		subjected to the user-managed stage-1 page table.
+ *              subjected to the user-managed stage-1 page table.
  * @__reserved: Must be 0
  *
  * The Intel VT-d specific data for creating hw_pagetable to represent
@@ -481,49 +415,174 @@ struct iommu_hwpt_intel_vtd {
 };
 
 /**
+ * struct iommu_hwpt_arm_smmuv3 - ARM SMMUv3 specific page table data
+ *
+ * @flags: page table entry attributes
+ * @s2vmid: Virtual machine identifier
+ * @s1ctxptr: Stage-1 context descriptor pointer
+ * @s1cdmax: Number of CDs pointed to by s1ContextPtr
+ * @s1fmt: Stage-1 Format
+ * @s1dss: Default substream
+ */
+struct iommu_hwpt_arm_smmuv3 {
+#define IOMMU_SMMUV3_FLAG_S2	(1 << 0) /* if unset, stage-1 */
+#define IOMMU_SMMUV3_FLAG_VMID	(1 << 1) /* vmid override */
+	__u64 flags;
+	__u32 s2vmid;
+	__u32 __reserved;
+	__u64 s1ctxptr;
+	__u64 s1cdmax;
+	__u64 s1fmt;
+	__u64 s1dss;
+};
+
+/**
  * struct iommu_hwpt_alloc - ioctl(IOMMU_HWPT_ALLOC)
  * @size: sizeof(struct iommu_hwpt_alloc)
  * @flags: Must be 0
  * @dev_id: The device to allocate this HWPT for
- * @pt_id: The parent of this HWPT (IOAS or HWPT)
- * @data_type: One of enum iommu_pgtbl_data_type
+ * @pt_id: The IOAS to connect this HWPT to
+ * @out_hwpt_id: The ID of the new HWPT
+ * @__reserved: Must be 0
+ * @data_type: One of enum iommu_hwpt_type
  * @data_len: Length of the type specific data
  * @data_uptr: User pointer to the type specific data
- * @out_hwpt_id: Output HWPT ID for the allocated object
- * @__reserved: Must be 0
  *
- * Allocate hw_pagetable for managing page tables in userspace. Such page
- * tables can be user-managed or kernel-managed. @pt_id is needed for either
- * case. While the @data_type, @data_len and @data_uptr are optional. For
- * the user-managed page tables, userspace should provide the data_type, the
- * data_len and the type speficific data. While for the kernel-managed page
- * tables, use the IOMMU_PGTBL_DATA_NONE data_type, @data_len and @data_uptr
- * will be ignored.
+ * Explicitly allocate a hardware page table object. This is the same object
+ * type that is returned by iommufd_device_attach() and represents the
+ * underlying iommu driver's iommu_domain kernel object.
  *
- * +==============================+=====================================+
- * | @data_type                   |      Data structure in @data_uptr   |
- * +------------------------------+-------------------------------------+
- * | IOMMU_PGTBL_DATA_NONE        |                 N/A                 |
- * +------------------------------+-------------------------------------+
- * | IOMMU_PGTBL_DATA_VTD_S1      |      struct iommu_hwpt_intel_vtd    |
- * +------------------------------+-------------------------------------+
+ * A normal HWPT will be created with the mappings from the given IOAS.
+ * The @data_type for its allocation can be set to IOMMU_HWPT_TYPE_DEFAULT, or
+ * another type (being listed below) to specialize a kernel-managed HWPT.
+ *
+ * A user-managed HWPT will be created from a given parent HWPT via @pt_id, in
+ * which the parent HWPT must be allocated previously via the same ioctl from a
+ * given IOAS. The @data_type must not be set to IOMMU_HWPT_TYPE_DEFAULT but a
+ * pre-defined type corresponding to the underlying IOMMU hardware.
+ *
+ * If the @data_type is set to IOMMU_HWPT_TYPE_DEFAULT, both the @data_len and
+ * the @data_uptr will be ignored. Otherwise, both of them must be given.
+ *
+ * +==============================+=====================================+===========+
+ * | @data_type                   |    Data structure in @data_uptr     |   @pt_id  |
+ * +------------------------------+-------------------------------------+-----------+
+ * | IOMMU_HWPT_TYPE_DEFAULT      |               N/A                   |    IOAS   |
+ * +------------------------------+-------------------------------------+-----------+
+ * | IOMMU_HWPT_TYPE_VTD_S1       |      struct iommu_hwpt_intel_vtd    |    HWPT   |
+ * +------------------------------+-------------------------------------+-----------+
+ * | IOMMU_HWPT_TYPE_ARM_SMMUV3   |      struct iommu_hwpt_arm_smmuv3   | IOAS/HWPT |
+ * +------------------------------+-------------------------------------------------+
  */
 struct iommu_hwpt_alloc {
 	__u32 size;
 	__u32 flags;
 	__u32 dev_id;
 	__u32 pt_id;
+	__u32 out_hwpt_id;
+	__u32 __reserved;
 	__u32 data_type;
 	__u32 data_len;
 	__aligned_u64 data_uptr;
-	__u32 out_hwpt_id;
-	__u32 __reserved;
 };
 #define IOMMU_HWPT_ALLOC _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_ALLOC)
 
 /**
+ * enum iommu_hw_info_type - IOMMU Hardware Info Types
+ * @IOMMU_HW_INFO_TYPE_INTEL_VTD: Intel VT-d iommu info type
+ * @IOMMU_HW_INFO_TYPE_ARM_SMMUV3: ARM SMMUv3 iommu info type
+ */
+enum iommu_hw_info_type {
+	IOMMU_HW_INFO_TYPE_DEFAULT,
+	IOMMU_HW_INFO_TYPE_INTEL_VTD,
+	IOMMU_HW_INFO_TYPE_ARM_SMMUV3,
+};
+
+/**
+ * struct iommu_hw_info_vtd - Intel VT-d hardware information
+ *
+ * @flags: Must be set to 0
+ * @__reserved: Must be 0
+ *
+ * @cap_reg: Value of Intel VT-d capability register defined in VT-d spec
+ *           section 11.4.2 Capability Register.
+ * @ecap_reg: Value of Intel VT-d capability register defined in VT-d spec
+ *            section 11.4.3 Extended Capability Register.
+ *
+ * User needs to understand the Intel VT-d specification to decode the
+ * register value.
+ */
+struct iommu_hw_info_vtd {
+	__u32 flags;
+	__u32 __reserved;
+	__aligned_u64 cap_reg;
+	__aligned_u64 ecap_reg;
+};
+
+/**
+ * struct iommu_hw_info_smmuv3 - ARM SMMUv3 device info
+ *
+ * @flags: Must be set to 0
+ * @__reserved: Must be 0
+ * @idr: Implemented features for the SMMU Non-secure programming interface.
+ *       Please refer to the chapters from 6.3.1 to 6.3.6 in the SMMUv3 Spec.
+ */
+struct iommu_hw_info_smmuv3 {
+	__u32 flags;
+	__u32 __reserved;
+	__u32 idr[6];
+};
+
+/**
+ * struct iommu_hw_info - ioctl(IOMMU_DEVICE_GET_HW_INFO)
+ * @size: sizeof(struct iommu_hw_info)
+ * @flags: Must be 0
+ * @dev_id: The device being attached to the iommufd
+ * @data_len: Input the length of the user buffer in bytes. Output the
+ *            length of data filled to the user buffer.
+ * @data_ptr: Pointer to the type specific structure
+ * @out_data_type: Output the iommu hardware info type, it is one of
+ *                 enum iommu_hw_info_type.
+ * @__reserved: Must be 0
+ * @out_hwpt_type_bitmap: Output the supported page table type. Each
+ *                        bit is defined in enum iommu_hwpt_type.
+ *
+ * Query the hardware iommu information for given device which has been
+ * bound to iommufd. @data_len is the size of the buffer which captures
+ * iommu type specific data and the data will be filled. Trailing bytes
+ * are zeroed if the user buffer is larger than the data kernel has.
+ *
+ * The type specific data would be used to sync capability between the
+ * vIOMMU and the hardware IOMMU. e.g. nested translation requires to
+ * check the hardware IOMMU capability, since a stage-1 translation table
+ * is owned by user but used by hardware IOMMU.
+ *
+ * The @out_data_type will be filled if the ioctl succeeds. It would
+ * be used to decode the data filled in the buffer pointed by @data_ptr.
+ *
+ * @out_hwpt_type_bitmap reports the supported hwpt types. This differs
+ * per the @out_data_type. Userspace should check it before allocating a
+ * user-managed hw_pagetable with user data, unless it allocates a default
+ * hw_pagetable that does not need user data.
+ *
+ * This is only available for the physical devices bound to iommufd as
+ * only physical devices can have hardware IOMMU.
+ */
+struct iommu_hw_info {
+	__u32 size;
+	__u32 flags;
+	__u32 dev_id;
+	__u32 data_len;
+	__aligned_u64 data_ptr;
+	__u32 out_data_type;
+	__u32 __reserved;
+	__aligned_u64 out_hwpt_type_bitmap;
+};
+#define IOMMU_DEVICE_GET_HW_INFO _IO(IOMMUFD_TYPE, IOMMUFD_CMD_DEVICE_GET_HW_INFO)
+
+/**
  * enum iommu_vtd_qi_granularity - Intel VT-d specific granularity of
- *				   queued invalidation
+ *                                 queued invalidation
  * @IOMMU_VTD_QI_GRAN_DOMAIN: domain-selective invalidation
  * @IOMMU_VTD_QI_GRAN_ADDR: page-selective invalidation
  */
@@ -534,12 +593,12 @@ enum iommu_vtd_qi_granularity {
 
 /**
  * enum iommu_hwpt_intel_vtd_invalidate_flags - Flags for Intel VT-d
- *						stage-1 page table cache
- *						invalidation
+ *                                              stage-1 page table cache
+ *                                              invalidation
  * @IOMMU_VTD_QI_FLAGS_LEAF: The LEAF flag indicates whether only the
- *			     leaf PTE caching needs to be invalidated
- *			     and other paging structure caches can be
- *			     preserved.
+ *                           leaf PTE caching needs to be invalidated
+ *                           and other paging structure caches can be
+ *                           preserved.
  */
 enum iommu_hwpt_intel_vtd_invalidate_flags {
 	IOMMU_VTD_QI_FLAGS_LEAF = 1 << 0,
@@ -552,7 +611,7 @@ enum iommu_hwpt_intel_vtd_invalidate_flags {
  * @__reserved: Must be 0
  * @addr: The start address of the addresses to be invalidated.
  * @granule_size: Page/block size of the mapping in bytes. It is used to
- *		  compute the invalidation range togehter with @nb_granules.
+ *                compute the invalidation range togehter with @nb_granules.
  * @nb_granules: Number of contiguous granules to be invalidated.
  *
  * The Intel VT-d specific invalidation data for user-managed stage-1 cache
@@ -576,23 +635,43 @@ struct iommu_hwpt_invalidate_intel_vtd {
 };
 
 /**
+ * struct iommu_hwpt_invalidate_arm_smmuv3 - ARM SMMUv3 cahce invalidation info
+ * @flags: boolean attributes of cache invalidation command
+ * @opcode: opcode of cache invalidation command
+ * @ssid: SubStream ID
+ * @granule_size: page/block size of the mapping in bytes
+ * @range: IOVA range to invalidate
+ */
+struct iommu_hwpt_invalidate_arm_smmuv3 {
+#define IOMMU_SMMUV3_CMDQ_TLBI_VA_LEAF	(1 << 0)
+	__u64 flags;
+	__u8 opcode;
+	__u8 padding[3];
+	__u32 asid;
+	__u32 ssid;
+	__u32 granule_size;
+	struct iommu_iova_range range;
+};
+
+/**
  * struct iommu_hwpt_invalidate - ioctl(IOMMU_HWPT_INVALIDATE)
  * @size: sizeof(struct iommu_hwpt_invalidate)
  * @hwpt_id: HWPT ID of target hardware page table for the invalidation
- * @data_type: One of enum iommu_pgtbl_data_type
+ * @data_type: One of enum iommu_hwpt_type
  * @data_len: Length of the type specific data
  * @data_uptr: User pointer to the type specific data
  *
  * Invalidate the iommu cache for user-managed page table. Modifications
  * on user-managed page table should be followed with this operation to
- * sync the userspace with the kernel and underlying hardware. This operation
- * is only needed by user-managed hw_pagetables, so the @data_type should
- * never be IOMMU_PGTBL_DATA_NONE.
+ * sync the IOTLB. This is only needed by user-managed hw_pagetables, so
+ * the @data_type should never be IOMMU_HWPT_TYPE_DEFAULT.
  *
  * +==============================+========================================+
  * | @data_type                   |     Data structure in @data_uptr       |
  * +------------------------------+----------------------------------------+
- * | IOMMU_PGTBL_DATA_VTD_S1      | struct iommu_hwpt_invalidate_intel_vtd |
+ * | IOMMU_HWPT_TYPE_VTD_S1       | struct iommu_hwpt_invalidate_intel_vtd |
+ * +------------------------------+----------------------------------------+
+ * | IOMMU_HWPT_TYPE_ARM_SMMUV3   | struct iommu_hwpt_invalidate_arm_smmuv3|
  * +------------------------------+----------------------------------------+
  */
 struct iommu_hwpt_invalidate {
