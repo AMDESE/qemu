@@ -85,6 +85,26 @@ static int vfio_ram_block_discard_disable(VFIOContainer *container, bool state)
     }
 }
 
+static VFIODevice *vfio_container_dev_iter_next(VFIOContainer *container,
+                                                VFIODevice *curr)
+{
+    VFIOGroup *group;
+
+    if (!curr) {
+        group = QLIST_FIRST(&container->group_list);
+    } else {
+        if (curr->next.le_next) {
+            return curr->next.le_next;
+        }
+        group = curr->group->container_next.le_next;
+    }
+
+    if (!group) {
+        return NULL;
+    }
+    return QLIST_FIRST(&group->device_list);
+}
+
 /*
  * Device state interfaces
  */
@@ -113,17 +133,22 @@ static int vfio_get_dirty_bitmap(VFIOContainer *container, uint64_t iova,
 
 bool vfio_mig_active(void)
 {
-    VFIOGroup *group;
+    VFIOAddressSpace *space;
+    VFIOContainer *container;
     VFIODevice *vbasedev;
 
-    if (QLIST_EMPTY(&vfio_group_list)) {
+    if (QLIST_EMPTY(&vfio_address_spaces)) {
         return false;
     }
 
-    QLIST_FOREACH(group, &vfio_group_list, next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (vbasedev->migration_blocker) {
-                return false;
+    QLIST_FOREACH(space, &vfio_address_spaces, list) {
+        QLIST_FOREACH(container, &space->containers, next) {
+            vbasedev = NULL;
+            while ((vbasedev = vfio_container_dev_iter_next(container,
+                                                            vbasedev))) {
+                if (vbasedev->migration_blocker) {
+                    return false;
+                }
             }
         }
     }
@@ -139,18 +164,24 @@ static Error *multiple_devices_migration_blocker;
  */
 static bool vfio_multiple_devices_migration_is_supported(void)
 {
-    VFIOGroup *group;
+    VFIOAddressSpace *space;
+    VFIOContainer *container;
     VFIODevice *vbasedev;
     unsigned int device_num = 0;
     bool all_support_p2p = true;
 
-    QLIST_FOREACH(group, &vfio_group_list, next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (vbasedev->migration) {
-                device_num++;
+    QLIST_FOREACH(space, &vfio_address_spaces, list) {
+        QLIST_FOREACH(container, &space->containers, next) {
+            vbasedev = NULL;
+            while ((vbasedev = vfio_container_dev_iter_next(container,
+                                                            vbasedev))) {
+                if (vbasedev->migration) {
+                    device_num++;
 
-                if (!(vbasedev->migration->mig_flags & VFIO_MIGRATION_P2P)) {
-                    all_support_p2p = false;
+                    if (!(vbasedev->migration->mig_flags &
+                          VFIO_MIGRATION_P2P)) {
+                        all_support_p2p = false;
+                    }
                 }
             }
         }
@@ -237,8 +268,7 @@ bool vfio_device_state_is_precopy(VFIODevice *vbasedev)
 
 static bool vfio_devices_all_dirty_tracking(VFIOContainer *container)
 {
-    VFIOGroup *group;
-    VFIODevice *vbasedev;
+    VFIODevice *vbasedev = NULL;
     MigrationState *ms = migrate_get_current();
 
     if (ms->state != MIGRATION_STATUS_ACTIVE &&
@@ -246,19 +276,17 @@ static bool vfio_devices_all_dirty_tracking(VFIOContainer *container)
         return false;
     }
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            VFIOMigration *migration = vbasedev->migration;
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        VFIOMigration *migration = vbasedev->migration;
 
-            if (!migration) {
-                return false;
-            }
+        if (!migration) {
+            return false;
+        }
 
-            if (vbasedev->pre_copy_dirty_page_tracking == ON_OFF_AUTO_OFF &&
-                (vfio_device_state_is_running(vbasedev) ||
-                 vfio_device_state_is_precopy(vbasedev))) {
+        if (vbasedev->pre_copy_dirty_page_tracking == ON_OFF_AUTO_OFF &&
+            (vfio_device_state_is_running(vbasedev) ||
+             vfio_device_state_is_precopy(vbasedev))) {
                 return false;
-            }
         }
     }
     return true;
@@ -266,14 +294,11 @@ static bool vfio_devices_all_dirty_tracking(VFIOContainer *container)
 
 static bool vfio_devices_all_device_dirty_tracking(VFIOContainer *container)
 {
-    VFIOGroup *group;
-    VFIODevice *vbasedev;
+    VFIODevice *vbasedev = NULL;
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (!vbasedev->dirty_pages_supported) {
-                return false;
-            }
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        if (!vbasedev->dirty_pages_supported) {
+            return false;
         }
     }
 
@@ -286,27 +311,24 @@ static bool vfio_devices_all_device_dirty_tracking(VFIOContainer *container)
  */
 static bool vfio_devices_all_running_and_mig_active(VFIOContainer *container)
 {
-    VFIOGroup *group;
-    VFIODevice *vbasedev;
+    VFIODevice *vbasedev = NULL;
 
     if (!migration_is_active(migrate_get_current())) {
         return false;
     }
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            VFIOMigration *migration = vbasedev->migration;
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        VFIOMigration *migration = vbasedev->migration;
 
-            if (!migration) {
-                return false;
-            }
+        if (!migration) {
+            return false;
+        }
 
-            if (vfio_device_state_is_running(vbasedev) ||
-                vfio_device_state_is_precopy(vbasedev)) {
-                continue;
-            } else {
-                return false;
-            }
+        if (vfio_device_state_is_running(vbasedev) ||
+            vfio_device_state_is_precopy(vbasedev)) {
+            continue;
+        } else {
+            return false;
         }
     }
     return true;
@@ -1205,21 +1227,18 @@ static bool vfio_section_is_vfio_pci(MemoryRegionSection *section,
                                      VFIOContainer *container)
 {
     VFIOPCIDevice *pcidev;
-    VFIODevice *vbasedev;
-    VFIOGroup *group;
+    VFIODevice *vbasedev = NULL;
     Object *owner;
 
     owner = memory_region_owner(section->mr);
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (vbasedev->type != VFIO_DEVICE_TYPE_PCI) {
-                continue;
-            }
-            pcidev = container_of(vbasedev, VFIOPCIDevice, vbasedev);
-            if (OBJECT(pcidev) == owner) {
-                return true;
-            }
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        if (vbasedev->type != VFIO_DEVICE_TYPE_PCI) {
+            continue;
+        }
+        pcidev = container_of(vbasedev, VFIOPCIDevice, vbasedev);
+        if (OBJECT(pcidev) == owner) {
+            return true;
         }
     }
 
@@ -1314,25 +1333,22 @@ static void vfio_devices_dma_logging_stop(VFIOContainer *container)
     uint64_t buf[DIV_ROUND_UP(sizeof(struct vfio_device_feature),
                               sizeof(uint64_t))] = {};
     struct vfio_device_feature *feature = (struct vfio_device_feature *)buf;
-    VFIODevice *vbasedev;
-    VFIOGroup *group;
+    VFIODevice *vbasedev = NULL;
 
     feature->argsz = sizeof(buf);
     feature->flags = VFIO_DEVICE_FEATURE_SET |
                      VFIO_DEVICE_FEATURE_DMA_LOGGING_STOP;
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (!vbasedev->dirty_tracking) {
-                continue;
-            }
-
-            if (ioctl(vbasedev->fd, VFIO_DEVICE_FEATURE, feature)) {
-                warn_report("%s: Failed to stop DMA logging, err %d (%s)",
-                             vbasedev->name, -errno, strerror(errno));
-            }
-            vbasedev->dirty_tracking = false;
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        if (!vbasedev->dirty_tracking) {
+            continue;
         }
+
+        if (ioctl(vbasedev->fd, VFIO_DEVICE_FEATURE, feature)) {
+            warn_report("%s: Failed to stop DMA logging, err %d (%s)",
+                        vbasedev->name, -errno, strerror(errno));
+        }
+        vbasedev->dirty_tracking = false;
     }
 }
 
@@ -1414,8 +1430,7 @@ static int vfio_devices_dma_logging_start(VFIOContainer *container)
 {
     struct vfio_device_feature *feature;
     VFIODirtyRanges ranges;
-    VFIODevice *vbasedev;
-    VFIOGroup *group;
+    VFIODevice *vbasedev = NULL;
     int ret = 0;
 
     vfio_dirty_tracking_init(container, &ranges);
@@ -1425,21 +1440,19 @@ static int vfio_devices_dma_logging_start(VFIOContainer *container)
         return -errno;
     }
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (vbasedev->dirty_tracking) {
-                continue;
-            }
-
-            ret = ioctl(vbasedev->fd, VFIO_DEVICE_FEATURE, feature);
-            if (ret) {
-                ret = -errno;
-                error_report("%s: Failed to start DMA logging, err %d (%s)",
-                             vbasedev->name, ret, strerror(errno));
-                goto out;
-            }
-            vbasedev->dirty_tracking = true;
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        if (vbasedev->dirty_tracking) {
+            continue;
         }
+
+        ret = ioctl(vbasedev->fd, VFIO_DEVICE_FEATURE, feature);
+        if (ret) {
+            ret = -errno;
+            error_report("%s: Failed to start DMA logging, err %d (%s)",
+                         vbasedev->name, ret, strerror(errno));
+            goto out;
+        }
+        vbasedev->dirty_tracking = true;
     }
 
 out:
@@ -1518,22 +1531,19 @@ static int vfio_devices_query_dirty_bitmap(VFIOContainer *container,
                                            VFIOBitmap *vbmap, hwaddr iova,
                                            hwaddr size)
 {
-    VFIODevice *vbasedev;
-    VFIOGroup *group;
+    VFIODevice *vbasedev = NULL;
     int ret;
 
-    QLIST_FOREACH(group, &container->group_list, container_next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            ret = vfio_device_dma_logging_report(vbasedev, iova, size,
-                                                 vbmap->bitmap);
-            if (ret) {
-                error_report("%s: Failed to get DMA logging report, iova: "
-                             "0x%" HWADDR_PRIx ", size: 0x%" HWADDR_PRIx
-                             ", err: %d (%s)",
-                             vbasedev->name, iova, size, ret, strerror(-ret));
+    while ((vbasedev = vfio_container_dev_iter_next(container, vbasedev))) {
+        ret = vfio_device_dma_logging_report(vbasedev, iova, size,
+                                             vbmap->bitmap);
+        if (ret) {
+            error_report("%s: Failed to get DMA logging report, iova: "
+                         "0x%" HWADDR_PRIx ", size: 0x%" HWADDR_PRIx
+                         ", err: %d (%s)",
+                         vbasedev->name, iova, size, ret, strerror(-ret));
 
-                return ret;
-            }
+            return ret;
         }
     }
 
@@ -1817,21 +1827,30 @@ bool vfio_get_info_dma_avail(struct vfio_iommu_type1_info *info,
 
 void vfio_reset_handler(void *opaque)
 {
-    VFIOGroup *group;
+    VFIOAddressSpace *space;
+    VFIOContainer *container;
     VFIODevice *vbasedev;
 
-    QLIST_FOREACH(group, &vfio_group_list, next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (vbasedev->dev->realized) {
-                vbasedev->ops->vfio_compute_needs_reset(vbasedev);
+    QLIST_FOREACH(space, &vfio_address_spaces, list) {
+        QLIST_FOREACH(container, &space->containers, next) {
+            vbasedev = NULL;
+            while ((vbasedev = vfio_container_dev_iter_next(container,
+                                                            vbasedev))) {
+                if (vbasedev->dev->realized) {
+                    vbasedev->ops->vfio_compute_needs_reset(vbasedev);
+                }
             }
         }
     }
 
-    QLIST_FOREACH(group, &vfio_group_list, next) {
-        QLIST_FOREACH(vbasedev, &group->device_list, next) {
-            if (vbasedev->dev->realized && vbasedev->needs_reset) {
-                vbasedev->ops->vfio_hot_reset_multi(vbasedev);
+    QLIST_FOREACH(space, &vfio_address_spaces, list) {
+        QLIST_FOREACH(container, &space->containers, next) {
+            vbasedev = NULL;
+            while ((vbasedev = vfio_container_dev_iter_next(container,
+                                                            vbasedev))) {
+                if (vbasedev->dev->realized && vbasedev->needs_reset) {
+                    vbasedev->ops->vfio_hot_reset_multi(vbasedev);
+                    }
             }
         }
     }
@@ -1919,6 +1938,10 @@ static VFIOAddressSpace *vfio_get_address_space(AddressSpace *as)
     space->as = as;
     QLIST_INIT(&space->containers);
 
+    if (QLIST_EMPTY(&vfio_address_spaces)) {
+        qemu_register_reset(vfio_reset_handler, NULL);
+    }
+
     QLIST_INSERT_HEAD(&vfio_address_spaces, space, list);
 
     return space;
@@ -1929,6 +1952,9 @@ static void vfio_put_address_space(VFIOAddressSpace *space)
     if (QLIST_EMPTY(&space->containers)) {
         QLIST_REMOVE(space, list);
         g_free(space);
+    }
+    if (QLIST_EMPTY(&vfio_address_spaces)) {
+        qemu_unregister_reset(vfio_reset_handler, NULL);
     }
 }
 
@@ -2395,10 +2421,6 @@ VFIOGroup *vfio_get_group(int groupid, AddressSpace *as, Error **errp)
         goto close_fd_exit;
     }
 
-    if (QLIST_EMPTY(&vfio_group_list)) {
-        qemu_register_reset(vfio_reset_handler, NULL);
-    }
-
     QLIST_INSERT_HEAD(&vfio_group_list, group, next);
 
     return group;
@@ -2427,10 +2449,6 @@ void vfio_put_group(VFIOGroup *group)
     trace_vfio_put_group(group->fd);
     close(group->fd);
     g_free(group);
-
-    if (QLIST_EMPTY(&vfio_group_list)) {
-        qemu_unregister_reset(vfio_reset_handler, NULL);
-    }
 }
 
 struct vfio_device_info *vfio_get_device_info(int fd)
