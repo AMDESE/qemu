@@ -126,6 +126,7 @@ typedef struct VFIODevice {
     bool dirty_pages_supported;
     bool dirty_tracking;
     IOMMUFDBackend *iommufd;
+    VFIOIOASHwpt *hwpt;
 } VFIODevice;
 
 struct VFIODeviceOps {

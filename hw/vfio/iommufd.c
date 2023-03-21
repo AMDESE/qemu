@@ -45,6 +45,34 @@ static bool iommufd_check_extension(VFIOContainer *bcontainer,
     };
 }
 
+static VFIODevice *iommufd_dev_iter_next(VFIOContainer *bcontainer,
+                                           VFIODevice *curr)
+{
+
+    VFIOIOASHwpt *hwpt;
+
+    assert(object_class_dynamic_cast(OBJECT_CLASS(bcontainer->ops),
+                                     TYPE_VFIO_IOMMU_BACKEND_IOMMUFD_OPS));
+
+    VFIOIOMMUFDContainer *container = container_of(bcontainer,
+                                                   VFIOIOMMUFDContainer,
+                                                   bcontainer);
+
+    if (!curr) {
+        hwpt = QLIST_FIRST(&container->hwpt_list);
+    } else {
+        if (curr->next.le_next) {
+            return curr->next.le_next;
+        }
+        hwpt = curr->hwpt->next.le_next;
+    }
+
+    if (!hwpt) {
+        return NULL;
+    }
+    return QLIST_FIRST(&hwpt->device_list);
+}
+
 static int iommufd_map(VFIOContainer *bcontainer, hwaddr iova,
                        ram_addr_t size, void *vaddr, bool readonly)
 {
@@ -209,6 +237,7 @@ static void vfio_device_detach_container(VFIODevice *vbasedev,
     hwpt = vfio_find_hwpt_for_dev(container, vbasedev);
     if (hwpt) {
         QLIST_REMOVE(vbasedev, next);
+        vbasedev->hwpt = NULL;
         if (QLIST_EMPTY(&hwpt->device_list)) {
             vfio_container_put_hwpt(hwpt);
         }
@@ -263,6 +292,7 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
     hwpt = vfio_container_get_hwpt(container, attach_data.pt_id);
 
     QLIST_INSERT_HEAD(&hwpt->device_list, vbasedev, next);
+    vbasedev->hwpt = hwpt;
     return 0;
 }
 
@@ -477,6 +507,7 @@ static void vfio_iommu_backend_iommufd_ops_class_init(ObjectClass *oc,
     VFIOIOMMUBackendOpsClass *ops = VFIO_IOMMU_BACKEND_OPS_CLASS(oc);
 
     ops->check_extension = iommufd_check_extension;
+    ops->dev_iter_next = iommufd_dev_iter_next;
     ops->dma_map = iommufd_map;
     ops->dma_unmap = iommufd_unmap;
     ops->attach_device = iommufd_attach_device;
