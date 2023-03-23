@@ -3050,12 +3050,13 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
         }
     }
 
-    if (!vbasedev->sysfsdev) {
+    if (vbasedev->fd < 0 && !vbasedev->sysfsdev) {
         if (!(~vdev->host.domain || ~vdev->host.bus ||
               ~vdev->host.slot || ~vdev->host.function)) {
             error_setg(errp, "No provided host device");
-            error_append_hint(errp, "Use -device vfio-pci,host=DDDD:BB:DD.F "
-                              "or -device vfio-pci,sysfsdev=PATH_TO_DEVICE\n");
+            error_append_hint(errp, "Use -device vfio-pci,host=DDDD:BB:DD.F, "
+                              "-device vfio-pci,sysfsdev=PATH_TO_DEVICE "
+                              "or -device vfio-pci,fd=DEVICE_FD\n");
             return;
         }
         vbasedev->sysfsdev =
@@ -3064,13 +3065,25 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
                             vdev->host.slot, vdev->host.function);
     }
 
-    if (stat(vbasedev->sysfsdev, &st) < 0) {
-        error_setg_errno(errp, errno, "no such host device");
-        error_prepend(errp, VFIO_MSG_PREFIX, vbasedev->sysfsdev);
-        return;
+    if (vbasedev->fd < 0) {
+        if (stat(vbasedev->sysfsdev, &st) < 0) {
+            error_setg_errno(errp, errno, "no such host device");
+            error_prepend(errp, VFIO_MSG_PREFIX, vbasedev->sysfsdev);
+            return;
+        }
+        vbasedev->name = g_path_get_basename(vbasedev->sysfsdev);
+    } else {
+        if (!vbasedev->iommufd) {
+            error_setg(errp, "Use FD passing only with iommufd backend");
+            return;
+        }
+        /*
+         * Give a name with fd so any function printing out vbasedev->name
+         * will not break.
+         */
+        vbasedev->name = g_strdup_printf("VFIO_FD%d", vbasedev->fd);
     }
 
-    vbasedev->name = g_path_get_basename(vbasedev->sysfsdev);
     vbasedev->ops = &vfio_pci_ops;
     vbasedev->type = VFIO_DEVICE_TYPE_PCI;
     vbasedev->dev = DEVICE(vdev);
@@ -3089,7 +3102,7 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
 
     trace_vfio_mdev(vbasedev->name, is_mdev);
 
-    if (vbasedev->ram_block_discard_allowed && !is_mdev) {
+    if (vbasedev->ram_block_discard_allowed && (!is_mdev || vbasedev->fd > 0)) {
         error_setg(errp, "x-balloon-allowed only potentially compatible "
                    "with mdev devices");
         goto error;
@@ -3476,6 +3489,7 @@ static Property vfio_pci_dev_properties[] = {
                                 OFF_AUTOPCIBAR_OFF),
     DEFINE_PROP_LINK("iommufd", VFIOPCIDevice, vbasedev.iommufd,
                      TYPE_IOMMUFD_BACKEND, IOMMUFDBackend *),
+    DEFINE_PROP_INT32("fd", VFIOPCIDevice, vbasedev.fd, -1),
     DEFINE_PROP_END_OF_LIST(),
 };
 
