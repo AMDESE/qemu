@@ -369,7 +369,7 @@ static void sev_region_add(MemoryListener *listener,
 {
     MemoryRegion *mr = section->mr;
 
-    if (mr->ram_block && mr->ram_block->restricted_fd > 0) {
+    if (mr->ram_block && mr->ram_block->restricted_fd > 0 && !mr->rom_device) {
         kvm_encrypt_reg_region(section->offset_within_address_space,
                                int128_get64(section->size), true);
     }
