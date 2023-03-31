@@ -269,7 +269,6 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
         .argsz = sizeof(bind),
         .flags = 0,
         .iommufd = container->be->fd,
-        .dev_cookie = (uint64_t)vbasedev,
     };
     struct vfio_device_attach_iommufd_pt attach_data = {
         .argsz = sizeof(attach_data),
