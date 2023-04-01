@@ -2843,6 +2843,99 @@ static void vfio_unregister_req_notifier(VFIOPCIDevice *vdev)
     vdev->req_enabled = false;
 }
 
+static void vfio_pci_test_get_hot_reset_info(VFIODevice *vbasedev)
+{
+    struct vfio_pci_hot_reset_info *info;
+    struct vfio_pci_dependent_device *devices;
+    int count, ret;
+    bool is_devid = false;
+
+    info = g_malloc0(sizeof(*info));
+    info->argsz = sizeof(*info);
+
+    ret = ioctl(vbasedev->fd, VFIO_DEVICE_GET_PCI_HOT_RESET_INFO, info);
+    if (ret && errno != ENOSPC) {
+        ret = -errno;
+        error_report("vfio: Failed to get hot reset info for device %s, %m", vbasedev->name);
+        goto out_exit;
+    }
+
+    count = info->count;
+    info = g_realloc(info, sizeof(*info) + (count * sizeof(*devices)));
+    info->argsz = sizeof(*info) + (count * sizeof(*devices));
+    devices = &info->devices[0];
+
+    ret = ioctl(vbasedev->fd, VFIO_DEVICE_GET_PCI_HOT_RESET_INFO, info);
+    if (ret) {
+        ret = -errno;
+        error_report("vfio: hot reset info failed: %m");
+        goto out_exit;
+    }
+
+    printf("%s info->flags: %x\n", __func__, info->flags);
+    is_devid = VFIO_PCI_HOT_RESET_FLAG_IOMMUFD_DEV_ID & info->flags;
+    for (count = 0; count < info->count; count++) {
+        printf("%s device[%d]->%s: %u\n", __func__, count, is_devid ? "devid":"group_id", devices[count].dev_id);
+        printf("%s device[%d]->seg: %x, bus: %x, devfn: %x.%x\n", __func__, count, devices[count].segment, devices[count].bus, (devices[count].devfn >> 3), devices[count].devfn & 0x7);
+    }
+
+out_exit:
+    g_free(info);
+
+}
+
+static void vfio_pci_test_hot_reset(VFIODevice *vbasedev)
+{
+    int32_t *fds;
+    int ret;
+    struct vfio_pci_hot_reset *reset;
+
+    reset = g_malloc0(sizeof(*reset) + sizeof(int32_t));
+    reset->argsz = sizeof(*reset) + sizeof(int32_t);
+    fds = &reset->fds[0];
+
+    vfio_pci_test_get_hot_reset_info(vbasedev);
+
+    printf("!!!!!!!!!!!!!!!!!!!!!!!! try reset with device fd array\n");
+    fds[0] = vbasedev->fd; // pass device fd
+    reset->count = 1;
+    ret = ioctl(vbasedev->fd, VFIO_DEVICE_PCI_HOT_RESET, reset);
+    if (ret)
+        printf("!!!!!!!!!!!!!!!!!!!!!!!! reset failed,  %m\n");
+    else
+        printf("!!!!!!!!!!!!!!!!!!!!!!!! reset ok, passed ownership check\n");
+
+
+    if (vbasedev->group) {
+        printf("!!!!!!!!!!!!!!!!!!!!!!!! try reset with group fd array\n");
+        fds[0] = vbasedev->group->fd;  // pass group fd, only ok for legacy be
+	reset->count = 1;
+        ret = ioctl(vbasedev->fd, VFIO_DEVICE_PCI_HOT_RESET, reset);
+        if (ret)
+            printf("!!!!!!!!!!!!!!!!!!!!!!!! reset failed,  %m\n");
+        else
+            printf("!!!!!!!!!!!!!!!!!!!!!!!! reset ok, passed ownership check\n");
+    } else {
+        printf("!!!!!!!!!!!!!!!!!!!!!!!! try reset with zero-legn fd array\n");
+        reset->count = 0; // only ok for iommufd be
+        ret = ioctl(vbasedev->fd, VFIO_DEVICE_PCI_HOT_RESET, reset);
+        if (ret)
+            printf("!!!!!!!!!!!!!!!!!!!!!!!! reset failed,  %m\n");
+        else
+            printf("!!!!!!!!!!!!!!!!!!!!!!!! reset ok, passed ownership check\n");
+    }
+
+    printf("!!!!!!!!!!!!!!!!!!!!!!!! try reset with neither group nor device fd array, should fail\n");
+    fds[0] = 0xbadbeef; // pass a fd which is neither group fd nor device fd, shall fail
+    reset->count = 1;
+    ret = ioctl(vbasedev->fd, VFIO_DEVICE_PCI_HOT_RESET, reset);
+    if (ret)
+        printf("!!!!!!!!!!!!!!!!!!!!!!!! reset failed,  %m\n");
+    else
+        printf("!!!!!!!!!!!!!!!!!!!!!!!! reset ok, passed ownership check\n");
+
+}
+
 static void vfio_realize(PCIDevice *pdev, Error **errp)
 {
     VFIOPCIDevice *vdev = VFIO_PCI(pdev);
@@ -3133,6 +3226,8 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
     vfio_register_err_notifier(vdev);
     vfio_register_req_notifier(vdev);
     vfio_setup_resetfn_quirk(vdev);
+
+    vfio_pci_test_hot_reset(vbasedev);
 
     return;
 
