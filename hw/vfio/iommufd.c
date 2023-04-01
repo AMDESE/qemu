@@ -285,6 +285,12 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
      */
     vfio_kvm_device_add_device(vbasedev);
 
+    printf("%s try a bind with iommufd==-2, expect to be failed\n", __func__);
+    bind.iommufd = -2;
+    ret = ioctl(vbasedev->fd, VFIO_DEVICE_BIND_IOMMUFD, &bind);
+    printf("%s, %m\n", __func__);
+    printf("%s, bind with a valid iommufd: %d\n", __func__, container->be->fd);
+    bind.iommufd = container->be->fd;
     /* Bind device to iommufd */
     ret = ioctl(vbasedev->fd, VFIO_DEVICE_BIND_IOMMUFD, &bind);
     if (ret) {
