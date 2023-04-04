@@ -44,6 +44,7 @@
 #include "migration/qemu-file.h"
 #include "linux/iommufd.h"
 #include "sysemu/iommufd.h"
+#include CONFIG_DEVICES
 
 #define TYPE_VFIO_PCI_NOHOTPLUG "vfio-pci-nohotplug"
 

@@ -343,6 +343,10 @@ vfio_user_server_allowed = get_option('vfio_user_server') \
   .require(targetos == 'linux', error_message: 'vfio-user server is supported only on Linux') \
   .allowed()
 
+iommufd_allowed = get_option('iommufd') \
+  .require(targetos == 'linux', error_message: 'iommufd is supported only on Linux') \
+  .allowed()
+
 have_tpm = get_option('tpm') \
   .require(targetos != 'windows', error_message: 'TPM emulation only available on POSIX systems') \
   .allowed()
@@ -2554,7 +2558,8 @@ host_kconfig = \
   ('CONFIG_LINUX' in config_host ? ['CONFIG_LINUX=y'] : []) + \
   (have_pvrdma ? ['CONFIG_PVRDMA=y'] : []) + \
   (multiprocess_allowed ? ['CONFIG_MULTIPROCESS_ALLOWED=y'] : []) + \
-  (vfio_user_server_allowed ? ['CONFIG_VFIO_USER_SERVER_ALLOWED=y'] : [])
+  (vfio_user_server_allowed ? ['CONFIG_VFIO_USER_SERVER_ALLOWED=y'] : []) + \
+  (iommufd_allowed ? ['CONFIG_IOMMUFD_ALLOWED=y'] : [])
 
 ignored = [ 'TARGET_XML_FILES', 'TARGET_ABI_DIR', 'TARGET_ARCH' ]
 
@@ -3902,6 +3907,7 @@ if have_system
   summary_info += {'default devices':   get_option('default_devices')}
   summary_info += {'out of process emulation': multiprocess_allowed}
   summary_info += {'vfio-user server': vfio_user_server_allowed}
+  summary_info += {'iommufd': iommufd_allowed}
 endif
 summary(summary_info, bool_yn: true, section: 'Targets and accelerators')
 
