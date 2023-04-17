@@ -2969,9 +2969,12 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
         /*
          * With KVM_MEMORY_(UN)ENCRYPT_REG_REGION by kvm_encrypt_mem(),
          * operation on underlying file descriptor is only for releasing
-         * unnecessary pages.
+         * unnecessary pages. Some facilities like VFIO may disable discard
+         * in QEMU, and there are also direct command-line parameters to
+         * control how discarding is handling, so take those into account.
          */
-        if ((shared_to_private &&
+        if (!ram_block_discard_is_disabled() &&
+            (shared_to_private &&
              (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_SHARED)) ||
             (!shared_to_private &&
              (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_PRIVATE))) {
