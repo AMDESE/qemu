@@ -238,9 +238,9 @@ struct vfio_device_bind_iommufd {
  * @flags:	must be 0.
  * @pt_id:	Input the target id which can represent an ioas or a hwpt
  *		allocated via iommufd subsystem.
- *		Output the attached hwpt id which could be the specified
- *		hwpt itself or a hwpt automatically created for the
- *		specified ioas by kernel during the attachment.
+ *		Output the input ioas id or the attached hwpt id which could
+ *		be the specified hwpt itself or a hwpt automatically created
+ *		for the specified ioas by kernel during the attachment.
  *
  * Return: 0 on success, -errno on failure.
  */
@@ -745,14 +745,15 @@ enum {
  *	- If the calling device is opened as a cdev, dev_id is reported.
  *	  Flag VFIO_PCI_HOT_RESET_FLAG_IOMMUFD_DEV_ID would be set.  Flag
  *	  VFIO_PCI_HOT_RESET_FLAG_RESETTABLE would be set per the ownership
- *	  of the affected devices.  If it is set, the user could invoke
+ *	  of the other affected devices.  If it is set, the user could invoke
  *	  VFIO_DEVICE_PCI_HOT_RESET with a zero-length fd array.  Kernel
  *	  set this flag when all the affected devices are owned by the user.
- *	  For a given affected device, it is owned if it is one of the below
- *	  cases:
+ *	  This flag is available only VFIO_PCI_HOT_RESET_FLAG_IOMMUFD_DEV_ID
+ *	  is set, otherwise ignored.  For a given affected device, it is owned
+ *	  if it suits one of the below cases:
  *		1) bound to the same iommufd_ctx with the calling device
  *		2) has not been bound to iommufd_ctx, but it is within the
- *		   iommu_group of an owned device as 1)
+ *		   iommu_group of an owned device.
  *	  For 1), the dev_id > 0, for 2) dev_id == 0. Otherwise, dev_id == -1.
  *
  * If the affected devices of a calling device span into multiple iommufds
@@ -765,7 +766,9 @@ enum {
 struct vfio_pci_dependent_device {
 	union {
 		__u32   group_id;
-		__s32	dev_id;
+		__u32	dev_id;
+#define VFIO_PCI_DEVID_NONBLOCKING	0
+#define VFIO_PCI_DEVID_BLOCKING	-1
 	};
 	__u16	segment;
 	__u8	bus;
@@ -794,17 +797,20 @@ struct vfio_pci_hot_reset_info {
  * The ownership proof needs to refer the output of
  * VFIO_DEVICE_GET_PCI_HOT_RESET_INFO.  Ownership can be proved as:
  *
- *   1) An array of group fds - Flag VFIO_PCI_HOT_RESET_FLAG_IOMMUFD_DEV_ID
- *				is not set.
- *   2) A zero-length array - Flag VFIO_PCI_HOT_RESET_FLAG_IOMMUFD_DEV_ID
+ *   1) An array of group fds - This is used for the devices opened via
+ *				the group/container interface.
+ *   2) A zero-length array - This is used for the devices opened via
+ *			      the cdev interface.  User should check the
+ *			      flag VFIO_PCI_HOT_RESET_FLAG_IOMMUFD_DEV_ID
  *			      and flag VFIO_PCI_HOT_RESET_FLAG_RESETTABLE
- *			      are both set.
+ *			      before using this method.
  *
  * In case a non void group fd array is passed, the devices affected by
  * the reset must belong to those opened VFIO groups.  In case a zero
  * length array is passed, the other devices affected by the reset, if
- * any, must be bound to the same iommufd as this VFIO device.  Either
- * of the 2 methods is applied to check the feasibility of the reset.
+ * any, must be either bound to the same iommufd as this VFIO device or
+ * in the same iommu_group with a device that does.  Either of the two
+ * methods is applied to check the feasibility of the hot reset.
  *
  * Return: 0 on success, -errno on failure.
  */

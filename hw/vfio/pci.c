@@ -2510,7 +2510,7 @@ static int vfio_pci_hot_reset_iommufd(VFIOPCIDevice *vdev, bool single)
     if (!(info->flags & VFIO_PCI_HOT_RESET_FLAG_RESETTABLE)) {
         if (!vdev->has_pm_reset) {
             for (i = 0; i < info->count; i++) {
-                if (devices[i].dev_id == -1) {
+                if (devices[i].dev_id == VFIO_PCI_DEVID_BLOCKING) {
                     error_report("vfio: Cannot reset device %s, "
                                  "depends on device %04x:%02x:%02x.%x "
                                  "which is not owned.",
@@ -2541,10 +2541,10 @@ static int vfio_pci_hot_reset_iommufd(VFIOPCIDevice *vdev, bool single)
          * are either bound to same iommufd or within same iommu_groups as
          * one of the iommufd bound devices.
          */
-        assert(devices[i].dev_id >= 0);
+        assert(devices[i].dev_id != VFIO_PCI_DEVID_BLOCKING);
 
         if (devices[i].dev_id == vdev->vbasedev.devid ||
-            devices[i].dev_id == 0 /*VFIO_INVALID_DEV_ID*/) {
+            devices[i].dev_id == VFIO_PCI_DEVID_NONBLOCKING) {
             continue;
         }
 
@@ -2585,7 +2585,7 @@ static int vfio_pci_hot_reset_iommufd(VFIOPCIDevice *vdev, bool single)
         VFIODevice *vbasedev_iter;
 
         if (devices[i].dev_id == vdev->vbasedev.devid ||
-            devices[i].dev_id == 0 /*VFIO_INVALID_DEV_ID*/) {
+            devices[i].dev_id == VFIO_PCI_DEVID_NONBLOCKING) {
             continue;
         }
 
