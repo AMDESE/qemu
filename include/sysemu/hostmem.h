@@ -46,6 +46,8 @@ OBJECT_DECLARE_TYPE(HostMemoryBackend, HostMemoryBackendClass,
  * name of backend that uses private memfd
  */
 #define TYPE_MEMORY_BACKEND_MEMFD_PRIVATE "memory-backend-memfd-private"
+OBJECT_DECLARE_TYPE(HostMemoryBackendPrivateMemfd, HostMemoryBackendPrivateMemfdClass,
+                    MEMORY_BACKEND_MEMFD_PRIVATE)
 
 /**
  * HostMemoryBackendClass:
@@ -55,6 +57,12 @@ struct HostMemoryBackendClass {
     ObjectClass parent_class;
 
     void (*alloc)(HostMemoryBackend *backend, Error **errp);
+};
+
+struct HostMemoryBackendPrivateMemfdClass {
+    HostMemoryBackendClass parent_class;
+
+    int (*discard)(Object *backend, RAMBlock *rb, uint64_t offset, uint64_t size, bool shared_to_private);
 };
 
 /**
