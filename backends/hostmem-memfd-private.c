@@ -19,6 +19,9 @@
 #include "qemu/units.h"
 #include "qapi/error.h"
 #include "qom/object.h"
+#include "exec/confidential-guest-support.h"
+
+#define MIN_DISCARD_SZ 4096
 
 struct HostMemoryBackendPrivateMemfd {
     HostMemoryBackend parent_obj;
@@ -37,6 +40,7 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
 {
     HostMemoryBackendPrivateMemfd *m = MEMORY_BACKEND_MEMFD_PRIVATE(backend);
     MachineState *machine = MACHINE(qdev_get_machine());
+    ConfidentialGuestSupport *cgs = machine->cgs;
     uint32_t ram_flags;
     char *name;
     int fd, priv_fd;
@@ -67,12 +71,14 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
     memory_region_set_restricted_fd(&backend->mr, priv_fd);
     machine->ram_size = backend->size;
 
-    m->discard_bitmap_size = backend->size / 4096;
-    m->discard_bitmap = bitmap_new(m->discard_bitmap_size);
-    g_warning("%s: my->discard_bitmap: %p, size: %lx", __func__, m->discard_bitmap, m->discard_bitmap_size);
-
-    memory_region_set_ram_discard_manager(host_memory_backend_get_memory(backend),
-                                          RAM_DISCARD_MANAGER(m));
+#define DISCARD_NONE 3
+    if (cgs->discard != DISCARD_NONE) {
+        g_warning("Registering RAM discard manager for private memfd backend.");
+        m->discard_bitmap_size = backend->size / MIN_DISCARD_SZ;
+        m->discard_bitmap = bitmap_new(m->discard_bitmap_size);
+        memory_region_set_ram_discard_manager(host_memory_backend_get_memory(backend),
+                                              RAM_DISCARD_MANAGER(m));
+    }
 }
 
 static bool
@@ -132,16 +138,15 @@ priv_memfd_backend_instance_init(Object *obj)
 static uint64_t priv_memfd_rdm_get_min_granularity(const RamDiscardManager *rdm,
                                                    const MemoryRegion *mr)
 {
-    return 4096;
-    //return 1 * MiB;
+    return MIN_DISCARD_SZ;
 }
 
 static bool priv_memfd_rdm_is_populated(const RamDiscardManager *rdm,
                                         const MemoryRegionSection *s)
 {
     const HostMemoryBackendPrivateMemfd *m = MEMORY_BACKEND_MEMFD_PRIVATE(rdm);
-    const unsigned long first_bit = s->offset_within_region / 4096;
-    const unsigned long last_bit = first_bit + int128_get64(s->size) / 4096;
+    const unsigned long first_bit = s->offset_within_region / MIN_DISCARD_SZ;
+    const unsigned long last_bit = first_bit + int128_get64(s->size) / MIN_DISCARD_SZ;
     unsigned long first_populated_bit;
 
     first_populated_bit = find_next_zero_bit(m->discard_bitmap, last_bit + 1,
@@ -201,10 +206,10 @@ static int priv_memfd_for_each_populated_range(const HostMemoryBackendPrivateMem
         MemoryRegionSection tmp = *s;
         uint64_t offset, size;
 
-        offset = first_zero_bit * 4096;
+        offset = first_zero_bit * MIN_DISCARD_SZ;
         last_zero_bit = find_next_bit(m->discard_bitmap, m->discard_bitmap_size,
                                       first_zero_bit + 1) - 1;
-        size = (last_zero_bit - first_zero_bit + 1) * 4096;
+        size = (last_zero_bit - first_zero_bit + 1) * MIN_DISCARD_SZ;
 
         if (!priv_memfd_rdm_find_intersect(m, &tmp, offset, size)) {
             break;
@@ -236,10 +241,10 @@ static int priv_memfd_for_each_discarded_range(const HostMemoryBackendPrivateMem
         MemoryRegionSection tmp = *s;
         uint64_t offset, size;
 
-        offset = first_bit * 4096;
+        offset = first_bit * MIN_DISCARD_SZ;
         last_bit = find_next_zero_bit(m->discard_bitmap, m->discard_bitmap_size,
                                       first_bit + 1) - 1;
-        size = (last_bit - first_bit + 1) * 4096;
+        size = (last_bit - first_bit + 1) * MIN_DISCARD_SZ;
 
         if (!priv_memfd_rdm_find_intersect(m, &tmp, offset, size)) {
             break;
@@ -353,7 +358,7 @@ static int priv_memfd_discard(Object *backend, RAMBlock *rb, uint64_t offset, ui
     RamDiscardListener *rdl, *rdl2;
     int ret = 0;
 
-    assert((size % 4096) == 0);
+    assert((size % MIN_DISCARD_SZ) == 0);
 
     QLIST_FOREACH(rdl, &m->rdl_list, next) {
         MemoryRegionSection tmp = *rdl->section;
@@ -363,13 +368,9 @@ static int priv_memfd_discard(Object *backend, RAMBlock *rb, uint64_t offset, ui
         }
 
         if (shared_to_private) {
-            g_warning("%s: shared_to_private marker 0, offset: %lx, size: %lx", __func__, offset, size);
             rdl->notify_discard(rdl, &tmp);
-            g_warning("%s: shared_to_private marker 1, offset: %lx, size: %lx", __func__, offset, size);
         } else {
-            g_warning("%s: private_to_shared marker 0, offset: %lx, size: %lx", __func__, offset, size);
             ret = rdl->notify_populate(rdl, &tmp);
-            g_warning("%s: private_to_shared marker 1, offset: %lx, size: %lx", __func__, offset, size);
         }
 
         if (ret) {
@@ -378,8 +379,8 @@ static int priv_memfd_discard(Object *backend, RAMBlock *rb, uint64_t offset, ui
     }
 
     if (!ret) {
-        const unsigned long first_bit = offset / 4096;
-        const unsigned long nbits = size / 4096;
+        const unsigned long first_bit = offset / MIN_DISCARD_SZ;
+        const unsigned long nbits = size / MIN_DISCARD_SZ;
 
         assert((first_bit + nbits) <= m->discard_bitmap_size);
 
