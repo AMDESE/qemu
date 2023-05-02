@@ -49,6 +49,7 @@
 #include "kvm-cpus.h"
 #include "sysemu/dirtylimit.h"
 #include "qemu/range.h"
+#include "sysemu/hostmem.h"
 
 #include "hw/boards.h"
 #include "sysemu/stats.h"
@@ -2947,9 +2948,6 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
 int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
 {
     MemoryRegionSection section;
-    void *addr;
-    RAMBlock *rb;
-    ram_addr_t offset;
     int ret;
 
     trace_kvm_convert_memory(start, size, shared_to_private ? "shared_to_private" : "private_to_shared");
@@ -2963,9 +2961,12 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
     if (object_dynamic_cast(section.mr->owner,
                             TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
         ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
-        addr = memory_region_get_ram_ptr(section.mr) +
-            section.offset_within_region;
-        rb = qemu_ram_block_from_host(addr, false, &offset);
+        HostMemoryBackendPrivateMemfd *backend = MEMORY_BACKEND_MEMFD_PRIVATE(section.mr->owner);
+        HostMemoryBackendPrivateMemfdClass *mfdc = MEMORY_BACKEND_MEMFD_PRIVATE_GET_CLASS(backend);
+        ram_addr_t offset;
+        RAMBlock *rb;
+        void *addr;
+
         /*
          * With KVM_MEMORY_(UN)ENCRYPT_REG_REGION by kvm_encrypt_mem(),
          * operation on underlying file descriptor is only for releasing
@@ -2973,12 +2974,16 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
          * in QEMU, and there are also direct command-line parameters to
          * control how discarding is handling, so take those into account.
          */
-        if (!ram_block_discard_is_disabled() &&
-            (shared_to_private &&
-             (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_SHARED)) ||
-            (!shared_to_private &&
-             (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_PRIVATE))) {
-            ret = ram_block_convert_range(rb, offset, size, shared_to_private);
+        if (
+            ((shared_to_private &&
+              (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_SHARED)) ||
+             (!shared_to_private &&
+              (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_PRIVATE)))) {
+            addr = memory_region_get_ram_ptr(section.mr) +
+                   section.offset_within_region;
+            rb = qemu_ram_block_from_host(addr, false, &offset);
+            ret = mfdc->discard(OBJECT(backend), rb, offset, size, shared_to_private);
+            ret = 0;
             if (ret) {
                 warn_report("Failed to convert range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
                             start, size, shared_to_private, ret);
