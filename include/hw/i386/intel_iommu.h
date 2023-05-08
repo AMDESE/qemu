@@ -344,8 +344,6 @@ struct IntelIOMMUState {
 
     GHashTable *vtd_iommufd_dev;             /* VTDIOMMUFDDevice */
 
-    VTDHwpt *s2_hwpt;
-
     /* interrupt remapping */
     bool intr_enabled;              /* Whether guest enabled IR */
     dma_addr_t intr_root;           /* Interrupt remapping table pointer */

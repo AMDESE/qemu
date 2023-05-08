@@ -57,6 +57,7 @@ struct IOMMUFDDevice {
     IOMMUFDBackend *iommufd;
     uint32_t dev_id;
     uint32_t def_hwpt_id;
+    uint32_t errata;
     bool initialized;
 };
 
