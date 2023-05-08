@@ -29,6 +29,7 @@
 #include "exec/hwaddr.h"
 #endif
 #include <linux/iommufd.h>
+#include "sysemu/iommufd.h"
 
 #define TYPE_IOMMUFD_DEVICE "qemu:iommufd-device"
 #define IOMMU_DEVICE(obj) \
@@ -56,9 +57,8 @@ typedef struct IOMMUFDDeviceClass {
  */
 struct IOMMUFDDevice {
     Object parent_obj;
-    int iommufd;
+    IOMMUFDBackend *iommufd;
     uint32_t dev_id;
-    uint32_t ioas_id;
     bool initialized;
 };
 
@@ -71,8 +71,8 @@ int iommufd_device_get_info(IOMMUFDDevice *idev,
 int iommufd_device_get_resv_iova(IOMMUFDDevice *idev,
                                  struct iommu_resv_iova_range **resv);
 void iommufd_device_init(void *_idev, size_t instance_size,
-                         const char *mrtypename, int fd,
-                         uint32_t dev_id, uint32_t ioas_id);
+                         const char *mrtypename, IOMMUFDBackend *iommufd,
+                         uint32_t dev_id);
 void iommufd_device_destroy(IOMMUFDDevice *idev);
 
 #endif

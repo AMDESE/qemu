@@ -2543,6 +2543,75 @@ static void vtd_context_global_invalidate(IntelIOMMUState *s)
     vtd_pasid_cache_sync(s, &pc_info);
 }
 
+static bool iommufd_listener_skipped_section(MemoryRegionSection *section)
+{
+    return !memory_region_is_ram(section->mr) ||
+           memory_region_is_protected(section->mr) ||
+           /*
+            * Sizing an enabled 64-bit BAR can cause spurious mappings to
+            * addresses in the upper part of the 64-bit address space.  These
+            * are never accessed by the CPU and beyond the address width of
+            * some IOMMU hardware.  TODO: VFIO should tell us the IOMMU width.
+            */
+           section->offset_within_address_space & (1ULL << 63);
+}
+
+static void iommufd_listener_region_add_s2domain(MemoryListener *listener,
+                                                 MemoryRegionSection *section)
+{
+    IOMMUFDBackend *iommufd = container_of(listener, IOMMUFDBackend, listener);
+    VTDHwpt *s2_hwpt = iommufd->s2_hwpt;
+    uint32_t ioas_id = s2_hwpt->parent_id;
+    hwaddr iova;
+    Int128 llend, llsize;
+    void *vaddr;
+
+    if (iommufd_listener_skipped_section(section)) {
+        return;
+    }
+    iova = REAL_HOST_PAGE_ALIGN(section->offset_within_address_space);
+    llend = int128_make64(section->offset_within_address_space);
+    llend = int128_add(llend, section->size);
+    llend = int128_and(llend, int128_exts64(qemu_real_host_page_mask()));
+    llsize = int128_sub(llend, int128_make64(iova));
+    vaddr = memory_region_get_ram_ptr(section->mr) +
+            section->offset_within_region +
+            (iova - section->offset_within_address_space);
+
+    /* Callee will report trace and failure itself */
+    iommufd_backend_map_dma(iommufd, ioas_id, iova, int128_get64(llsize),
+                            vaddr, section->readonly);
+}
+
+static void iommufd_listener_region_del_s2domain(MemoryListener *listener,
+                                                 MemoryRegionSection *section)
+{
+    IOMMUFDBackend *iommufd = container_of(listener, IOMMUFDBackend, listener);
+    VTDHwpt *s2_hwpt = iommufd->s2_hwpt;
+    uint32_t ioas_id = s2_hwpt->parent_id;
+    hwaddr iova;
+    Int128 llend, llsize;
+
+    if (iommufd_listener_skipped_section(section)) {
+        return;
+    }
+    iova = REAL_HOST_PAGE_ALIGN(section->offset_within_address_space);
+    llend = int128_make64(section->offset_within_address_space);
+    llend = int128_add(llend, section->size);
+    llend = int128_and(llend, int128_exts64(qemu_real_host_page_mask()));
+    llsize = int128_sub(llend, int128_make64(iova));
+
+    /* Callee will report trace and failure itself */
+    iommufd_backend_unmap_dma(iommufd, ioas_id, iova, int128_get64(llsize));
+}
+
+static const MemoryListener iommufd_s2domain_memory_listener = {
+    .name = "iommufd_s2domain",
+    .priority = 1000,
+    .region_add = iommufd_listener_region_add_s2domain,
+    .region_del = iommufd_listener_region_del_s2domain,
+};
+
 static void vtd_init_fl_hwpt_data(struct iommu_hwpt_vtd_s1 *vtd,
                                         VTDPASIDEntry *pe)
 {
@@ -2560,25 +2629,43 @@ static void vtd_init_fl_hwpt_data(struct iommu_hwpt_vtd_s1 *vtd,
 
 /* Called under iommu->lock */
 static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
-                           uint32_t *s2_hwpt)
+                           uint32_t *s2_hwptid)
 {
     struct iommu_resv_iova_range *resv;
     int ret;
+    uint32_t ioas_id;
+    IOMMUFDBackend *iommufd = idev->iommufd;
+    VTDHwpt *s2_hwpt = iommufd->s2_hwpt;
 
-    if (s->s2_hwpt) {
-        *s2_hwpt = s->s2_hwpt->hwpt_id;
-        s->s2_hwpt->users++;
+    if (s2_hwpt) {
+        *s2_hwptid = s2_hwpt->hwpt_id;
+        s2_hwpt->users++;
         return 0;
     }
-    ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
-                                     idev->ioas_id, IOMMU_HWPT_TYPE_DEFAULT,
-                                     0, NULL, s2_hwpt);
+
+    ret = iommufd_backend_get_ioas(iommufd, &ioas_id);
+    if (ret < 0) {
+        return ret;
+    }
+
+    s2_hwpt = g_malloc0(sizeof(*s2_hwpt));
+    s2_hwpt->iommufd = iommufd->fd;
+    s2_hwpt->parent_id = ioas_id;
+    iommufd->s2_hwpt = s2_hwpt;
+
+    iommufd->listener = iommufd_s2domain_memory_listener;
+
+    ret = iommufd_backend_alloc_hwpt(iommufd->fd, idev->dev_id,
+                                     ioas_id, IOMMU_HWPT_TYPE_DEFAULT,
+                                     0, NULL, s2_hwptid);
     if (!ret) {
-        s->s2_hwpt = g_malloc0(sizeof(*s->s2_hwpt));
-        s->s2_hwpt->hwpt_id = *s2_hwpt;
-        s->s2_hwpt->iommufd = idev->iommufd;
-        s->s2_hwpt->parent_id = idev->ioas_id;
-        s->s2_hwpt->users = 1;
+        memory_listener_register(&iommufd->listener, &address_space_memory);
+        s2_hwpt->hwpt_id = *s2_hwptid;
+        s2_hwpt->users = 1;
+    } else {
+        iommufd_backend_put_ioas(iommufd, ioas_id);
+        g_free(s2_hwpt);
+        iommufd->s2_hwpt = NULL;
     }
 
     /* This is for test, does not have real point so far */
@@ -2590,18 +2677,24 @@ static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
 }
 
 /* Called under iommu->lock */
-static void vtd_put_s2_hwpt(IntelIOMMUState *s)
+static void vtd_put_s2_hwpt(IOMMUFDDevice *idev)
 {
-    if (!s->s2_hwpt) {
+    IOMMUFDBackend *iommufd = idev->iommufd;
+    VTDHwpt *s2_hwpt = iommufd->s2_hwpt;
+
+    if (!s2_hwpt) {
         return;
     }
 
-    if (--s->s2_hwpt->users) {
+    if (--s2_hwpt->users) {
         return;
     }
-    iommufd_backend_free_id(s->s2_hwpt->iommufd, s->s2_hwpt->hwpt_id);
-    g_free(s->s2_hwpt);
-    s->s2_hwpt = NULL;
+
+    memory_listener_unregister(&iommufd->listener);
+    iommufd_backend_free_id(s2_hwpt->iommufd, s2_hwpt->hwpt_id);
+    iommufd_backend_put_ioas(iommufd, s2_hwpt->parent_id);
+    g_free(s2_hwpt);
+    iommufd->s2_hwpt = NULL;
 }
 
 static int vtd_init_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt,
@@ -2618,24 +2711,24 @@ static int vtd_init_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt,
         return ret;
     }
 
-    ret = iommufd_backend_alloc_hwpt(idev->iommufd, idev->dev_id,
+    ret = iommufd_backend_alloc_hwpt(idev->iommufd->fd, idev->dev_id,
                                      s2_hwptid, IOMMU_HWPT_TYPE_VTD_S1,
                                      sizeof(vtd), &vtd, &hwpt_id);
     if (ret) {
-        vtd_put_s2_hwpt(s);
+        vtd_put_s2_hwpt(idev);
         return ret;
     }
 
     hwpt->hwpt_id = hwpt_id;
-    hwpt->iommufd = idev->iommufd;
+    hwpt->iommufd = idev->iommufd->fd;
     hwpt->parent_id = s2_hwptid;
     return 0;
 }
 
-static void vtd_destroy_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt)
+static void vtd_destroy_fl_hwpt(IOMMUFDDevice *idev, VTDHwpt *hwpt)
 {
     iommufd_backend_free_id(hwpt->iommufd, hwpt->hwpt_id);
-    vtd_put_s2_hwpt(s);
+    vtd_put_s2_hwpt(idev);
 }
 
 static int vtd_dev_get_rid2pasid(IntelIOMMUState *s, uint8_t bus_num,
@@ -2702,7 +2795,7 @@ static int vtd_device_attach_pgtbl(VTDIOMMUFDDevice *vtd_idev,
             return ret;
         }
         hwpt->hwpt_id = s2_hwptid;
-        hwpt->iommufd = idev->iommufd;
+        hwpt->iommufd = idev->iommufd->fd;
     }
 
     if (update || ((vtd_pasid_as->pasid == rid_pasid) &&
@@ -2723,9 +2816,9 @@ static int vtd_device_attach_pgtbl(VTDIOMMUFDDevice *vtd_idev,
 out:
     if (ret) {
         if (vtd_pe_pgtt_is_flt(pe)) {
-            vtd_destroy_fl_hwpt(s, hwpt);
+            vtd_destroy_fl_hwpt(idev, hwpt);
         } else if (vtd_pe_pgtt_is_pt(pe)) {
-            vtd_put_s2_hwpt(s);
+            vtd_put_s2_hwpt(idev);
         }
     }
     return ret;
@@ -2735,7 +2828,6 @@ static int vtd_device_detach_pgtbl(IOMMUFDDevice *idev,
                                   VTDPASIDAddressSpace *vtd_pasid_as,
                                   uint32_t rid_pasid)
 {
-    IntelIOMMUState *s = vtd_pasid_as->iommu_state;
     VTDHwpt *hwpt = &vtd_pasid_as->hwpt;
     VTDPASIDEntry *cached_pe = vtd_pasid_as->pasid_cache_entry.cache_filled ?
                        &vtd_pasid_as->pasid_cache_entry.pasid_entry : NULL;
@@ -2756,9 +2848,9 @@ static int vtd_device_detach_pgtbl(IOMMUFDDevice *idev,
     printf("%s, try to unbind PASID %u - 2, ret: %d\n", __func__, vtd_pasid_as->pasid, ret);
     if (!ret) {
         if (vtd_pe_pgtt_is_flt(cached_pe)) {
-            vtd_destroy_fl_hwpt(s, hwpt);
+            vtd_destroy_fl_hwpt(idev, hwpt);
         } else if (vtd_pe_pgtt_is_pt(cached_pe)) {
-            vtd_put_s2_hwpt(s);
+            vtd_put_s2_hwpt(idev);
         }
     }
     return ret;

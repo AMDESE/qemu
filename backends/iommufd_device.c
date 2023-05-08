@@ -67,7 +67,7 @@ int iommufd_device_get_info(IOMMUFDDevice *idev,
     };
     int ret;
 
-    ret = ioctl(idev->iommufd, IOMMU_GET_HW_INFO, &info);
+    ret = ioctl(idev->iommufd->fd, IOMMU_GET_HW_INFO, &info);
     if (ret) {
         error_report("Failed to get info %m");
     } else {
@@ -94,7 +94,7 @@ int iommufd_device_get_resv_iova(IOMMUFDDevice *idev,
     ranges.num_iovas = 1;
 again:
 
-    ret = ioctl(idev->iommufd, IOMMU_RESV_IOVA_RANGES, &ranges);
+    ret = ioctl(idev->iommufd->fd, IOMMU_RESV_IOVA_RANGES, &ranges);
     if (ret) {
         if (errno == -EMSGSIZE) {
             iovas = g_realloc(iovas, ranges.num_iovas*sizeof(*iovas));
@@ -111,16 +111,15 @@ again:
 }
 
 void iommufd_device_init(void *_idev, size_t instance_size,
-                       const char *mrtypename, int fd,
-                       uint32_t dev_id, uint32_t ioas_id)
+                         const char *mrtypename, IOMMUFDBackend *iommufd,
+                         uint32_t dev_id)
 {
     IOMMUFDDevice *idev;
 
     object_initialize(_idev, instance_size, mrtypename);
     idev = IOMMU_DEVICE(_idev);
-    idev->iommufd = fd;
+    idev->iommufd = iommufd;
     idev->dev_id = dev_id;
-    idev->ioas_id = ioas_id;
     idev->initialized = true;
 }
 
