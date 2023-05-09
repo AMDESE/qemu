@@ -5492,10 +5492,10 @@ VTDAddressSpace *vtd_find_add_as(IntelIOMMUState *s, PCIBus *bus,
 static bool vtd_check_hw_info(IntelIOMMUState *s,
                                    struct iommu_hw_info_vtd *vtd)
 {
-    return !((s->aw_bits != ((vtd->cap_reg >> 16) & 0x3fULL)) ||
+    return !((s->aw_bits > ((vtd->cap_reg >> 16) & 0x3fULL)) ||
              ((s->host_cap ^ vtd->cap_reg) & VTD_CAP_MASK & s->host_cap) ||
              ((s->host_ecap ^ vtd->ecap_reg) & VTD_ECAP_MASK & s->host_ecap) ||
-             (VTD_GET_PSS(s->host_ecap) != VTD_GET_PSS(vtd->ecap_reg)));
+             (VTD_GET_PSS(s->host_ecap) > VTD_GET_PSS(vtd->ecap_reg)));
 }
 
 /* Caller should hold iommu lock. */
