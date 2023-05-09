@@ -2543,7 +2543,8 @@ static void vtd_context_global_invalidate(IntelIOMMUState *s)
     vtd_pasid_cache_sync(s, &pc_info);
 }
 
-static bool iommufd_listener_skipped_section(MemoryRegionSection *section)
+static bool iommufd_listener_skipped_section(MemoryRegionSection *section,
+                                             IOMMUFDBackend *iommufd)
 {
     return !memory_region_is_ram(section->mr) ||
            memory_region_is_protected(section->mr) ||
@@ -2553,7 +2554,9 @@ static bool iommufd_listener_skipped_section(MemoryRegionSection *section)
             * are never accessed by the CPU and beyond the address width of
             * some IOMMU hardware.  TODO: VFIO should tell us the IOMMU width.
             */
-           section->offset_within_address_space & (1ULL << 63);
+           section->offset_within_address_space & (1ULL << 63) ||
+           (iommufd->errata & IOMMU_HW_INFO_VTD_ERRATA_772415_SPR17 &&
+            section->readonly);
 }
 
 static void iommufd_listener_region_add_s2domain(MemoryListener *listener,
@@ -2566,7 +2569,7 @@ static void iommufd_listener_region_add_s2domain(MemoryListener *listener,
     Int128 llend, llsize;
     void *vaddr;
 
-    if (iommufd_listener_skipped_section(section)) {
+    if (iommufd_listener_skipped_section(section, iommufd)) {
         return;
     }
     iova = REAL_HOST_PAGE_ALIGN(section->offset_within_address_space);
@@ -2592,7 +2595,7 @@ static void iommufd_listener_region_del_s2domain(MemoryListener *listener,
     hwaddr iova;
     Int128 llend, llsize;
 
-    if (iommufd_listener_skipped_section(section)) {
+    if (iommufd_listener_skipped_section(section, iommufd)) {
         return;
     }
     iova = REAL_HOST_PAGE_ALIGN(section->offset_within_address_space);
@@ -5539,6 +5542,8 @@ static bool vtd_check_idev(IntelIOMMUState *s,
 {
     struct iommu_hw_info_vtd vtd;
     enum iommu_hw_info_type type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
+    IOMMUFDBackend *iommufd = idev->iommufd;
+    bool passed;
 
     if (iommufd_device_get_info(idev, &type, sizeof(vtd), &vtd)) {
         error_report("Failed to get IOMMU capability!!!");
@@ -5550,7 +5555,21 @@ static bool vtd_check_idev(IntelIOMMUState *s,
         return false;
     }
 
-    return vtd_sync_hw_info(s, &vtd);
+    passed = vtd_sync_hw_info(s, &vtd);
+    if (passed) {
+        if (vtd.flags & IOMMU_HW_INFO_VTD_ERRATA_772415_SPR17) {
+            warn_report("Host IOMMU hardware has errata 772415!!!");
+
+            if (!(iommufd->errata & IOMMU_HW_INFO_VTD_ERRATA_772415_SPR17) &&
+                iommufd->s2_hwpt) {
+                /* fail the cap check if there is already readonly mapping */
+                error_report("Failed nesting cap check due to errata 772415!!");
+                return false;
+            }
+            iommufd->errata |= IOMMU_HW_INFO_VTD_ERRATA_772415_SPR17;
+        }
+    }
+    return passed;
 }
 
 static int vtd_dev_set_iommu_device(PCIBus *bus, void *opaque,

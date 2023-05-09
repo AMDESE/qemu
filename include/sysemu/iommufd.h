@@ -31,6 +31,7 @@ struct IOMMUFDBackend {
     uint32_t users;
     void *s2_hwpt;
     MemoryListener listener;
+    uint32_t errata;
 
     /*< public >*/
 };
