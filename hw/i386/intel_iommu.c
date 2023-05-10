@@ -5645,11 +5645,12 @@ static void vtd_dev_unset_iommu_device(PCIBus *bus, void *opaque,
     vtd_iommu_lock(s);
 
     vtd_idev = g_hash_table_lookup(s->vtd_iommufd_dev, &key);
-    if (!vtd_idev)
+    if (!vtd_idev) {
+        vtd_iommu_unlock(s);
         return;
+    }
 
     QLIST_REMOVE(vtd_idev, next);
-    g_free(vtd_idev);
     g_hash_table_remove(s->vtd_iommufd_dev, &key);
 
     vtd_iommu_unlock(s);

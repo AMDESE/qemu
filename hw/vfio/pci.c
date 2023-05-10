@@ -3540,6 +3540,7 @@ static void vfio_instance_finalize(Object *obj)
 static void vfio_exitfn(PCIDevice *pdev)
 {
     VFIOPCIDevice *vdev = VFIO_PCI(pdev);
+    VFIODevice *vbasedev = &vdev->vbasedev;
 
     vfio_unregister_req_notifier(vdev);
     vfio_unregister_err_notifier(vdev);
@@ -3555,6 +3556,9 @@ static void vfio_exitfn(PCIDevice *pdev)
     vfio_pci_disable_rp_atomics(vdev);
     vfio_bars_exit(vdev);
     vfio_migration_exit(&vdev->vbasedev);
+    if (vbasedev->iommufd) {
+        pci_device_unset_iommu_device(pdev);
+    }
 }
 
 static void vfio_pci_reset(DeviceState *dev)
