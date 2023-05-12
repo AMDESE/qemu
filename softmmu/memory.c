@@ -1643,8 +1643,22 @@ void memory_region_init_ram_from_fd(MemoryRegion *mr,
     }
 }
 
-void memory_region_set_restricted_fd(MemoryRegion *mr, int fd)
+void memory_region_set_restricted_fd(MemoryRegion *mr, uint64_t size, Error **errp)
 {
+    int fd;
+
+    if (!kvm_enabled()) {
+        error_setg(errp, "Restricted/guarded memfd requires KVM");
+        return;
+    }
+
+    //fd = kvm_create_gmemfd(size, (size % (2 << 20) == 0) ? 1 : 0);
+    fd = kvm_create_gmemfd(size, 0);
+    if (fd < 0) {
+        error_setg(errp, "Failed to create restricted/guarded memfd: %d", fd);
+        return;
+    }
+
     if (mr->ram_block) {
         mr->ram_block->restricted_fd = fd;
     }
@@ -1745,17 +1759,12 @@ memory_region_init_rom_device_nomigrate_private(MemoryRegion *mr,
                                                 Error **errp)
 {
     Error *err = NULL;
-    int fd, priv_fd;
+    int fd;
 
     assert(ops);
 
     fd = qemu_memfd_create("rom-backend-memfd-shared", size, false, 0, 0, errp);
     if (fd == -1) {
-        return;
-    }
-
-    priv_fd = qemu_memfd_restricted(size, 0, errp);
-    if (priv_fd == -1) {
         return;
     }
 
@@ -1771,10 +1780,14 @@ memory_region_init_rom_device_nomigrate_private(MemoryRegion *mr,
         mr->size = int128_zero();
         object_unparent(OBJECT(mr));
         error_propagate(errp, err);
+        return;
     }
 
-    fallocate(priv_fd, 0, 0, size);
-    memory_region_set_restricted_fd(mr, priv_fd);
+    memory_region_set_restricted_fd(mr, size, &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
 }
 
 void memory_region_init_rom_device_private(MemoryRegion *mr,
@@ -3649,25 +3662,25 @@ void memory_region_init_ram_private(MemoryRegion *mr,
                                     bool shared,
                                     Error **errp)
 {
-    int shared_fd, priv_fd;
+    int shared_fd;
+    Error *err = NULL;
 
     shared_fd = qemu_memfd_create("rom-backend-memfd-shared", size, false, 0, 0, errp);
     if (shared_fd == -1) {
         return;
     }
 
-    priv_fd = qemu_memfd_restricted(size, 0, errp);
-    if (priv_fd == -1) {
+    memory_region_init_ram_from_fd(mr, owner, name, size, RAM_SHARED|RAM_NORESERVE, shared_fd, 0, &err);
+    if (err) {
+        error_propagate(errp, err);
         return;
     }
 
-    memory_region_init_ram_from_fd(mr, owner, name, size, RAM_SHARED|RAM_NORESERVE, shared_fd, 0, errp);
-
-    if (!shared) {
-        fallocate(priv_fd, 0, 0, size);
+    memory_region_set_restricted_fd(mr, size, &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
     }
-
-    memory_region_set_restricted_fd(mr, priv_fd);
 }
 
 void memory_region_init_rom(MemoryRegion *mr,

@@ -41,9 +41,10 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
     HostMemoryBackendPrivateMemfd *m = MEMORY_BACKEND_MEMFD_PRIVATE(backend);
     MachineState *machine = MACHINE(qdev_get_machine());
     ConfidentialGuestSupport *cgs = machine->cgs;
+    Error *local_err = NULL;
     uint32_t ram_flags;
     char *name;
-    int fd, priv_fd;
+    int fd;
 
     if (!backend->size) {
         error_setg(errp, "can't create backend with size 0");
@@ -56,11 +57,6 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
         return;
     }
 
-    priv_fd = qemu_memfd_restricted(backend->size, 0, errp);
-    if (priv_fd == -1) {
-        return;
-    }
-
     name = host_memory_backend_get_name(backend);
     ram_flags = backend->share ? RAM_SHARED : 0;
     ram_flags |= backend->reserve ? 0 : RAM_NORESERVE;
@@ -68,7 +64,12 @@ priv_memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
                                    backend->size, ram_flags, fd, 0, errp);
     g_free(name);
 
-    memory_region_set_restricted_fd(&backend->mr, priv_fd);
+    memory_region_set_restricted_fd(&backend->mr, backend->size, &local_err);
+    if (local_err) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
     machine->ram_size = backend->size;
 
 #define DISCARD_NONE 3

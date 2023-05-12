@@ -1364,11 +1364,13 @@ void memory_region_init_ram_from_fd(MemoryRegion *mr,
  * memory_region_set_restricted_fd:  Set RAM memory region with a restricted fd.
  *
  * @mr: the #MemoryRegion to be set.
- * @fd: the fd to provide restricted memory.
+ * @size: the size of memory
+ * @errp: pointer to Error*, to store an error if it happens.
  *
  */
 
-void memory_region_set_restricted_fd(MemoryRegion *mr, int fd);
+void memory_region_set_restricted_fd(MemoryRegion *mr, uint64_t size,
+                                     Error **errp);
 
 #endif
 

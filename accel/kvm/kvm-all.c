@@ -287,6 +287,23 @@ int kvm_physical_memory_addr_from_host(KVMState *s, void *ram,
     return ret;
 }
 
+int kvm_create_gmemfd(uint64_t size, uint64_t flags)
+{
+    struct kvm_create_guest_memfd gmem;
+    int gmemfd;
+
+    gmem.size = size;
+    if (flags)
+        gmem.flags = KVM_GUEST_MEMFD_HUGE_PMD;
+    else
+        gmem.flags = 0;
+
+    gmemfd = kvm_vm_ioctl(kvm_state, KVM_CREATE_GUEST_MEMFD, &gmem);
+    g_warning("%s: created memfd: %d", __func__, gmemfd);
+
+    return gmemfd;
+}
+
 static int kvm_set_user_memory_region(KVMMemoryListener *kml, KVMSlot *slot, bool new)
 {
     KVMState *s = kvm_state;
