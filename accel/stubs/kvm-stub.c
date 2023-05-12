@@ -137,3 +137,8 @@ bool kvm_has_restricted_memory(void)
 {
     return false;
 }
+
+int kvm_create_gmemfd(uint64_t size, uint64_t flags)
+{
+    return -ENOSYS;
+}

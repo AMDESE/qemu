@@ -585,4 +585,5 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region);
 int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private);
 
 bool kvm_has_restricted_memory(void);
+int kvm_create_gmemfd(uint64_t size, uint64_t flags);
 #endif
