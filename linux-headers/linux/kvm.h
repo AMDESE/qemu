@@ -530,7 +530,7 @@ struct kvm_run {
 		/* KVM_EXIT_VMGEXIT */
 		struct {
 			__u64 ghcb_msr; /* GHCB MSR contents */
-			__u8 error; /* user -> kernel */
+			__u64 ret; /* user -> kernel */
 		} vmgexit;
 		/* Fix the size of the union. */
 		char padding[256];
