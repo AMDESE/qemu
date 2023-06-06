@@ -2247,7 +2247,7 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
 #define GHCB_MSR_PSC_GFN_MASK       MAKE_64BIT_MASK(GHCB_MSR_PSC_GFN_POS, 39)
 #define GHCB_MSR_PSC_ERROR_POS      32
 #define GHCB_MSR_PSC_ERROR_MASK     MAKE_64BIT_MASK(GHCB_MSR_PSC_ERROR_POS, 32)
-#define GHCB_MSR_PSC_ERROR          GHCB_MSR_PSC_ERROR_MASK
+#define GHCB_MSR_PSC_ERROR          GHCB_MSR_PSC_ERROR_MASK /* all error bits set */
 #define GHCB_MSR_PSC_OP_POS         52
 #define GHCB_MSR_PSC_OP_MASK        MAKE_64BIT_MASK(GHCB_MSR_PSC_OP_POS, 4)
 #define GHCB_MSR_PSC_OP_PRIVATE     1
@@ -2314,6 +2314,7 @@ static int kvm_handle_vmgexit_msr_protocol(__u64 *ghcb_msr)
 
     op = (*ghcb_msr & GHCB_MSR_PSC_OP_MASK) >> GHCB_MSR_PSC_OP_POS;
     gfn = (*ghcb_msr & GHCB_MSR_PSC_GFN_MASK) >> GHCB_MSR_PSC_GFN_POS;
+    *ghcb_msr = 0;
 
     trace_kvm_vmgexit_psc_msr_proto(gfn, 0x1000, op == GHCB_MSR_PSC_OP_PRIVATE);
 
@@ -2321,17 +2322,15 @@ static int kvm_handle_vmgexit_msr_protocol(__u64 *ghcb_msr)
                              op == GHCB_MSR_PSC_OP_PRIVATE);
 
     if (ret) {
-        *ghcb_msr &= ~GHCB_MSR_PSC_ERROR_MASK;
         *ghcb_msr |= GHCB_MSR_PSC_ERROR;
     }
 
-    *ghcb_msr &= ~GHCB_MSR_INFO_MASK;
     *ghcb_msr |= GHCB_MSR_PSC_RESP;
 
     return 0;
 }
 
-int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
+int kvm_handle_vmgexit(__u64 *ghcb_msr, __u64 *psc_ret)
 {
     struct ghcb *ghcb;
     hwaddr len = sizeof(struct ghcb);
@@ -2346,6 +2345,7 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
         return kvm_handle_vmgexit_msr_protocol(ghcb_msr);
     }
 
+    *psc_ret = 0;
     ghcb = address_space_map(&address_space_memory, ghcb_addr,
                                   &len, true, attrs);
 
@@ -2368,8 +2368,9 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
         ret = kvm_convert_memory(entry->gfn * 0x1000, entry->pagesize ? 0x200000 : 0x1000,
                                  private);
         if (ret) {
+            *psc_ret = 0x100ULL << 32; /* Indicate interrupted processing */
             g_warning("error doing memory conversion: %d", ret);
-            goto out;
+            break;
         }
         desc->hdr.cur_entry++;
     }
@@ -2380,8 +2381,6 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
     memcpy(ghcb->shared_buffer, shared_buf, GHCB_SHARED_BUF_SIZE);
     address_space_unmap(&address_space_memory, ghcb, len, true, len);
 
-out:
-    *error = 0;
     return 0;
 }
 
