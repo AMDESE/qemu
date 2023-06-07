@@ -1653,7 +1653,10 @@ void memory_region_set_restricted_fd(MemoryRegion *mr, uint64_t size, Error **er
     }
 
     //fd = kvm_create_gmemfd(size, (size % (2 << 20) == 0) ? 1 : 0);
-    fd = kvm_create_gmemfd(size, 0);
+    if ((mr->addr % (2 << 20)) == 0 && (mr->size % (2 << 20)) == 0)
+        fd = kvm_create_gmemfd(size, 1);
+    else
+        fd = kvm_create_gmemfd(size, 0);
     if (fd < 0) {
         error_setg(errp, "Failed to create restricted/guarded memfd: %d", fd);
         return;
