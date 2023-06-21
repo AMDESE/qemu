@@ -360,6 +360,7 @@ enum iommu_hwpt_type {
 	IOMMU_HWPT_TYPE_DEFAULT,
 	IOMMU_HWPT_TYPE_VTD_S1,
 	IOMMU_HWPT_TYPE_ARM_SMMUV3,
+	IOMMU_HWPT_TYPE_AMD_V2,
 };
 
 /**
@@ -438,6 +439,23 @@ struct iommu_hwpt_arm_smmuv3 {
 };
 
 /**
+ * struct iommu_hwpt_amd_v2 - AMD IOMMU specific user-managed
+ *                            v2 I/O page table data
+ * @gcr3: GCR3 guest physical ddress
+ * @gcr3_va: GCR3 host virtual address
+ * @gid: Guest ID
+ * @iommu_id: IOMMU host device ID
+ * @gdev_id: Guest device ID
+ */
+struct iommu_hwpt_amd_v2 {
+	__u64 gcr3;
+	__u64 gcr3_va;
+	__u32 gid;
+	__u32 iommu_id;
+	__u16 gdev_id;
+};
+
+/**
  * struct iommu_hwpt_alloc - ioctl(IOMMU_HWPT_ALLOC)
  * @size: sizeof(struct iommu_hwpt_alloc)
  * @flags: Must be 0
@@ -473,6 +491,8 @@ struct iommu_hwpt_arm_smmuv3 {
  * | IOMMU_HWPT_TYPE_VTD_S1       |      struct iommu_hwpt_intel_vtd    |    HWPT   |
  * +------------------------------+-------------------------------------+-----------+
  * | IOMMU_HWPT_TYPE_ARM_SMMUV3   |      struct iommu_hwpt_arm_smmuv3   | IOAS/HWPT |
+ * +------------------------------+-------------------------------------------------+
+ * | IOMMU_HWPT_TYPE_AMD_V2       |      struct iommu_hwpt_amd_v2       | IOAS/HWPT |
  * +------------------------------+-------------------------------------------------+
  */
 struct iommu_hwpt_alloc {
