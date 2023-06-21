@@ -512,11 +512,13 @@ struct iommu_hwpt_alloc {
  * enum iommu_hw_info_type - IOMMU Hardware Info Types
  * @IOMMU_HW_INFO_TYPE_INTEL_VTD: Intel VT-d iommu info type
  * @IOMMU_HW_INFO_TYPE_ARM_SMMUV3: ARM SMMUv3 iommu info type
+ * @IOMMU_HW_INFO_TYPE_AMD: AMD IOMMU info type
  */
 enum iommu_hw_info_type {
 	IOMMU_HW_INFO_TYPE_NONE,
 	IOMMU_HW_INFO_TYPE_INTEL_VTD,
 	IOMMU_HW_INFO_TYPE_ARM_SMMUV3,
+	IOMMU_HW_INFO_TYPE_AMD,
 };
 
 /**
@@ -562,6 +564,15 @@ struct iommu_hw_info_smmuv3 {
 	__u32 flags;
 	__u32 __reserved;
 	__u32 idr[6];
+};
+
+/**
+ * struct iommu_hw_info_amd - AMD IOMMU device info
+ *
+ */
+struct iommu_hw_info_amd {
+	__u64 efr;
+	__u64 efr2;
 };
 
 /**
