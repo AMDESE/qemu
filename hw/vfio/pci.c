@@ -45,6 +45,7 @@
 #include "linux/iommufd.h"
 #include "sysemu/iommufd.h"
 #include "monitor/monitor.h"
+#include "hw/i386/intel_iommu_internal.h"
 
 #define TYPE_VFIO_PCI_NOHOTPLUG "vfio-pci-nohotplug"
 
@@ -2196,6 +2197,36 @@ static int vfio_setup_rebar_ecap(VFIOPCIDevice *vdev, uint16_t pos)
     return 0;
 }
 
+static bool vfio_is_supported(VFIOPCIDevice *vdev, uint16_t cap_id)
+{
+    struct iommu_hw_info_vtd vtd;
+    enum iommu_hw_info_type type = IOMMU_HW_INFO_TYPE_INTEL_VTD;
+    bool support = false;
+
+    if (vdev->vbasedev.idev.iommufd) {
+        if (iommufd_device_get_info(&vdev->vbasedev.idev, &type,
+                                    sizeof(vtd), &vtd)) {
+            error_report("Cannot get connected IOMMU capabilities!");
+	        return false;
+        }
+        switch (cap_id) {
+        case PCI_EXT_CAP_ID_PRI:
+            support = !!(VTD_ECAP_PRS & vtd.ecap_reg) &&
+                      !!(VTD_ECAP_DT & vtd.ecap_reg);
+            break;
+        case PCI_EXT_CAP_ID_PASID:
+            support = !!(VTD_ECAP_PASID & vtd.ecap_reg);
+            break;
+        case PCI_EXT_CAP_ID_ATS:
+            support = !!(VTD_ECAP_DT & vtd.ecap_reg);
+            break;
+        default:
+            break;
+        }
+    }
+    return support;
+}
+
 static void vfio_add_ext_cap(VFIOPCIDevice *vdev)
 {
     PCIDevice *pdev = &vdev->pdev;
@@ -2273,6 +2304,13 @@ static void vfio_add_ext_cap(VFIOPCIDevice *vdev)
             break;
         case PCI_EXT_CAP_ID_REBAR:
             if (!vfio_setup_rebar_ecap(vdev, next)) {
+                pcie_add_capability(pdev, cap_id, cap_ver, next, size);
+            }
+            break;
+        case PCI_EXT_CAP_ID_ATS:
+        case PCI_EXT_CAP_ID_PRI:
+        case PCI_EXT_CAP_ID_PASID:
+            if (vfio_is_supported(vdev, (uint16_t)cap_id)) {
                 pcie_add_capability(pdev, cap_id, cap_ver, next, size);
             }
             break;
