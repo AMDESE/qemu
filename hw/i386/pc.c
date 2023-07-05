@@ -1837,6 +1837,7 @@ static void pc_machine_set_max_fw_size(Object *obj, Visitor *v,
 
 #define DEFAULT_KVM_TYPE "normal"
 #define PROTECTED_KVM_TYPE "protected"
+#define SNP_KVM_TYPE "snp"
 
 static char *pc_machine_get_kvm_type(Object *obj, Error **errp)
 {
@@ -1902,9 +1903,18 @@ int pc_machine_kvm_type(MachineState *machine, const char *kvm_type)
         xen_xenstore_create();
     }
 #endif
+    /*
+     * TODO: temporary for backward-compatibility, future versions
+     * should require SNP-specific -machine kvm_type being specified.
+     */
     if (kvm_type && !strcmp(kvm_type, PROTECTED_KVM_TYPE)) {
-        return 1;
+        return 3;
     }
+
+    if (kvm_type && !strcmp(kvm_type, SNP_KVM_TYPE)) {
+        return 3;
+    }
+
     return 0;
 }
 
