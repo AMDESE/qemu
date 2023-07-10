@@ -1547,10 +1547,12 @@ snp_launch_update_cpuid(uint32_t cpuid_addr, void *hva, uint32_t cpuid_len)
 }
 
 static int
-snp_launch_update_kernel_hashes(SevSnpGuestState *sev_snp, uint32_t addr,
-                                void *hva, uint32_t len)
+snp_launch_update_kernel_hashes(uint32_t addr, void *hva, uint32_t len)
 {
+    ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
+    SevSnpGuestState *sev_snp = SEV_SNP_GUEST(SEV_COMMON(cgs));
     int type = KVM_SEV_SNP_PAGE_TYPE_ZERO;
+
     if (sev_snp->sev_common.kernel_hashes) {
         assert(sev_snp->kernel_hashes_data);
         assert((sev_snp->kernel_hashes_offset +
@@ -1560,6 +1562,7 @@ snp_launch_update_kernel_hashes(SevSnpGuestState *sev_snp, uint32_t addr,
                sizeof(*sev_snp->kernel_hashes_data));
         type = KVM_SEV_SNP_PAGE_TYPE_NORMAL;
     }
+
     return snp_launch_update_data(addr, hva, len, type);
 }
 
@@ -1577,7 +1580,7 @@ snp_metadata_desc_to_page_type(int desc_type)
 }
 
 static void
-snp_populate_metadata_pages(SevSnpGuestState *sev_snp, OvmfSevMetadata *metadata)
+snp_populate_metadata_pages(OvmfSevMetadata *metadata)
 {
     OvmfSevMetadataDesc *desc;
     int type, ret, i;
@@ -1603,8 +1606,7 @@ snp_populate_metadata_pages(SevSnpGuestState *sev_snp, OvmfSevMetadata *metadata
         if (type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
             ret = snp_launch_update_cpuid(desc->base, hva, desc->len);
         } else if (desc->type == SEV_DESC_TYPE_SNP_KERNEL_HASHES) {
-            ret = snp_launch_update_kernel_hashes(sev_snp, desc->base, hva,
-                                                  desc->len);
+            ret = snp_launch_update_kernel_hashes(desc->base, hva, desc->len);
         } else {
             ret = snp_launch_update_data(desc->base, hva, desc->len, type);
         }
@@ -1638,7 +1640,7 @@ sev_snp_launch_finish(SevSnpGuestState *sev_snp)
     }
 
     /* Populate all the metadata pages */
-    snp_populate_metadata_pages(sev_snp, metadata);
+    snp_populate_metadata_pages(metadata);
 
     QTAILQ_FOREACH(data, &launch_update, next) {
         ret = sev_snp_launch_update(sev_snp, data);
