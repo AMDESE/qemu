@@ -140,6 +140,15 @@ struct SevSnpGuestState {
 #define DEFAULT_SEV_DEVICE      "/dev/sev"
 #define DEFAULT_SEV_SNP_POLICY  0x30000
 
+enum {
+    VMPL0 = 0,
+    VMPL1,
+    VMPL2,
+    VMPL3,
+
+    VMPL_MAX,
+};
+
 typedef struct SevLaunchUpdateData {
     QTAILQ_ENTRY(SevLaunchUpdateData) next;
 
@@ -147,9 +156,10 @@ typedef struct SevLaunchUpdateData {
     void     *hva;
     uint64_t len;
     int      type;
+    uint8_t  vmpl;
 } SevLaunchUpdateData;
 
-static QTAILQ_HEAD(, SevLaunchUpdateData) launch_update;
+static QTAILQ_HEAD(, SevLaunchUpdateData) launch_update[VMPL_MAX];
 
 #define SEV_INFO_BLOCK_GUID     "00f771de-1a7e-4fcb-890e-68c77e2fb44e"
 typedef struct __attribute__((__packed__)) SevInfoBlock {
@@ -1145,7 +1155,7 @@ sev_read_file_base64(const char *filename, guchar **data, gsize *len)
 static int
 sev_snp_launch_start(SevSnpGuestState *sev_snp_guest)
 {
-    int fw_error, rc;
+    int i, fw_error, rc;
     SevCommonState *sev_common = SEV_COMMON(sev_snp_guest);
     struct kvm_sev_snp_launch_start *start = &sev_snp_guest->kvm_start_conf;
 
@@ -1159,7 +1169,9 @@ sev_snp_launch_start(SevSnpGuestState *sev_snp_guest)
         return 1;
     }
 
-    QTAILQ_INIT(&launch_update);
+    for (i = 0; i < VMPL_MAX; i++) {
+        QTAILQ_INIT(&launch_update[i]);
+    }
 
     sev_set_guest_state(sev_common, SEV_STATE_LAUNCH_UPDATE);
 
@@ -1276,8 +1288,15 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, SevLaunchUpdateData *data
     update.start_gfn = data->gpa >> TARGET_PAGE_BITS;
     update.len = data->len;
     update.page_type = data->type;
+    if (data->vmpl == VMPL1) {
+        update.vmpl1_perms = 0xf;
+    } else if (data->vmpl == VMPL2) {
+        update.vmpl2_perms = 0xf;
+    } else if (data->vmpl == VMPL3) {
+        update.vmpl3_perms = 0xf;
+    }
 
-    trace_kvm_sev_snp_launch_update(data->hva, data->gpa, data->len,
+    trace_kvm_sev_snp_launch_update(data->hva, data->gpa, data->len, data->vmpl,
                                     snp_page_type_to_str(data->type));
     ret = sev_ioctl(SEV_COMMON(sev_snp_guest)->sev_fd,
                     KVM_SEV_SNP_LAUNCH_UPDATE,
@@ -1497,7 +1516,7 @@ sev_snp_cpuid_info_fill(SnpCpuidInfo *snp_cpuid_info,
 }
 
 static int
-snp_launch_update_data(uint64_t gpa, void *hva, uint32_t len, int type)
+snp_launch_update_data(uint64_t gpa, void *hva, uint32_t len, int type, uint8_t vmpl)
 {
     SevLaunchUpdateData *data;
 
@@ -1506,14 +1525,15 @@ snp_launch_update_data(uint64_t gpa, void *hva, uint32_t len, int type)
     data->hva = hva;
     data->len = len;
     data->type = type;
+    data->vmpl = vmpl;
 
-    QTAILQ_INSERT_TAIL(&launch_update, data, next);
+    QTAILQ_INSERT_TAIL(&launch_update[vmpl], data, next);
 
     return 0;
 }
 
 static int
-snp_launch_update_cpuid(uint32_t cpuid_addr, void *hva, uint32_t cpuid_len)
+snp_launch_update_cpuid(uint32_t cpuid_addr, void *hva, uint32_t cpuid_len, uint8_t vmpl)
 {
     KvmCpuidInfo kvm_cpuid_info = {0};
     SnpCpuidInfo snp_cpuid_info;
@@ -1543,11 +1563,11 @@ snp_launch_update_cpuid(uint32_t cpuid_addr, void *hva, uint32_t cpuid_len)
 
     memcpy(hva, &snp_cpuid_info, sizeof(snp_cpuid_info));
 
-    return snp_launch_update_data(cpuid_addr, hva, cpuid_len, KVM_SEV_SNP_PAGE_TYPE_CPUID);
+    return snp_launch_update_data(cpuid_addr, hva, cpuid_len, KVM_SEV_SNP_PAGE_TYPE_CPUID, vmpl);
 }
 
 static int
-snp_launch_update_kernel_hashes(uint32_t addr, void *hva, uint32_t len)
+snp_launch_update_kernel_hashes(uint32_t addr, void *hva, uint32_t len, uint8_t vmpl)
 {
     ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
     SevSnpGuestState *sev_snp = SEV_SNP_GUEST(SEV_COMMON(cgs));
@@ -1563,7 +1583,7 @@ snp_launch_update_kernel_hashes(uint32_t addr, void *hva, uint32_t len)
         type = KVM_SEV_SNP_PAGE_TYPE_NORMAL;
     }
 
-    return snp_launch_update_data(addr, hva, len, type);
+    return snp_launch_update_data(addr, hva, len, type, vmpl);
 }
 
 static int
@@ -1604,11 +1624,11 @@ snp_populate_metadata_pages(OvmfSevMetadata *metadata)
         }
 
         if (type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
-            ret = snp_launch_update_cpuid(desc->base, hva, desc->len);
+            ret = snp_launch_update_cpuid(desc->base, hva, desc->len, VMPL0);
         } else if (desc->type == SEV_DESC_TYPE_SNP_KERNEL_HASHES) {
-            ret = snp_launch_update_kernel_hashes(desc->base, hva, desc->len);
+            ret = snp_launch_update_kernel_hashes(desc->base, hva, desc->len, VMPL0);
         } else {
-            ret = snp_launch_update_data(desc->base, hva, desc->len, type);
+            ret = snp_launch_update_data(desc->base, hva, desc->len, type, VMPL0);
         }
 
         if (ret) {
@@ -1622,7 +1642,7 @@ snp_populate_metadata_pages(OvmfSevMetadata *metadata)
 static void
 sev_snp_launch_finish(SevSnpGuestState *sev_snp)
 {
-    int ret, error;
+    int i, ret, error;
     Error *local_err = NULL;
     OvmfSevMetadata *metadata;
     SevLaunchUpdateData *data;
@@ -1642,10 +1662,16 @@ sev_snp_launch_finish(SevSnpGuestState *sev_snp)
     /* Populate all the metadata pages */
     snp_populate_metadata_pages(metadata);
 
-    QTAILQ_FOREACH(data, &launch_update, next) {
-        ret = sev_snp_launch_update(sev_snp, data);
-        if (ret) {
-            exit(1);
+    for (i = VMPL0; i < VMPL_MAX; i++) {
+        if (QTAILQ_EMPTY(&launch_update[i])) {
+            continue;
+        }
+
+        QTAILQ_FOREACH(data, &launch_update[i], next) {
+            ret = sev_snp_launch_update(sev_snp, data);
+            if (ret) {
+                exit(1);
+            }
         }
     }
 
@@ -1865,7 +1891,7 @@ sev_encrypt_flash(hwaddr gpa, uint8_t *ptr, uint64_t len, Error **errp)
 
         if (sev_snp_enabled()) {
             ret = snp_launch_update_data(gpa, ptr, len,
-                                         KVM_SEV_SNP_PAGE_TYPE_NORMAL);
+                                         KVM_SEV_SNP_PAGE_TYPE_NORMAL, VMPL0);
         } else {
             ret = sev_launch_update_data(SEV_GUEST(sev_common), ptr, len, gpa);
         }
