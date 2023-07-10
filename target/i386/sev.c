@@ -40,6 +40,7 @@
 #include "exec/address-spaces.h"
 #include "qemu/queue.h"
 #include "exec/ramblock.h"
+#include "qemu/queue.h"
 
 /* hard code sha256 digest size */
 #define HASH_SIZE 32
