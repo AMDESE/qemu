@@ -1988,8 +1988,8 @@ sev_es_parse_reset_block(SevInfoBlock *info, uint32_t *addr)
 }
 
 static int
-sev_es_find_reset_vector(void *flash_ptr, uint64_t flash_size,
-                         uint32_t *addr)
+sev_es_find_reset_state(void *flash_ptr, uint64_t flash_size,
+                        uint32_t *addr)
 {
     QemuUUID info_guid, *guid;
     SevInfoBlock *info;
@@ -2003,7 +2003,7 @@ sev_es_find_reset_vector(void *flash_ptr, uint64_t flash_size,
     *addr = 0;
 
     /*
-     * Extract the AP reset vector for SEV-ES guests by locating the SEV GUID.
+     * Extract the AP reset state for SEV-ES guests by locating the SEV GUID.
      * The SEV GUID is located on its own (original implementation) or within
      * the Firmware GUID Table (new implementation), either of which are
      * located 32 bytes from the end of the flash.
@@ -2035,7 +2035,7 @@ sev_es_find_reset_vector(void *flash_ptr, uint64_t flash_size,
     return sev_es_parse_reset_block(info, addr);
 }
 
-void sev_es_set_reset_vector(CPUState *cpu)
+void sev_es_set_reset_state(CPUState *cpu)
 {
     X86CPU *x86;
     CPUX86State *env;
@@ -2061,7 +2061,7 @@ void sev_es_set_reset_vector(CPUState *cpu)
     env->eip = sev_common->reset_ip;
 }
 
-int sev_es_save_reset_vector(void *flash_ptr, uint64_t flash_size)
+int sev_es_save_reset_state(void *flash_ptr, uint64_t flash_size)
 {
     CPUState *cpu;
     uint32_t addr;
@@ -2073,8 +2073,8 @@ int sev_es_save_reset_vector(void *flash_ptr, uint64_t flash_size)
     }
 
     addr = 0;
-    ret = sev_es_find_reset_vector(flash_ptr, flash_size,
-                                   &addr);
+    ret = sev_es_find_reset_state(flash_ptr, flash_size,
+                                  &addr);
     if (ret) {
         return ret;
     }
@@ -2085,7 +2085,7 @@ int sev_es_save_reset_vector(void *flash_ptr, uint64_t flash_size)
         sev_common->reset_data_valid = true;
 
         CPU_FOREACH(cpu) {
-            sev_es_set_reset_vector(cpu);
+            sev_es_set_reset_state(cpu);
         }
     }
 
