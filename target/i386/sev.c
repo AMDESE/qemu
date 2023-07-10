@@ -1587,7 +1587,7 @@ snp_populate_metadata_pages(OvmfSevMetadata *metadata)
     void *hva;
     MemoryRegion *mr = NULL;
 
-    for (i = 0; i < metadata->num_desc; i++) {
+    for (i = 0; i < metadata->header.num_desc; i++) {
         desc = &metadata->descs[i];
 
         type = snp_metadata_desc_to_page_type(desc->type);

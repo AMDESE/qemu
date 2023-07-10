@@ -165,6 +165,13 @@ typedef enum {
 
 } ovmf_sev_metadata_desc_type;
 
+typedef struct __attribute__((__packed__)) SevMetadataHeader {
+    uint8_t signature[4];
+    uint32_t len;
+    uint32_t version;
+    uint32_t num_desc;
+} SevMetadataHeader;
+
 typedef struct __attribute__((__packed__)) OvmfSevMetadataDesc {
     uint32_t base;
     uint32_t len;
@@ -172,10 +179,7 @@ typedef struct __attribute__((__packed__)) OvmfSevMetadataDesc {
 } OvmfSevMetadataDesc;
 
 typedef struct __attribute__((__packed__)) OvmfSevMetadata {
-    uint8_t signature[4];
-    uint32_t len;
-    uint32_t version;
-    uint32_t num_desc;
+    SevMetadataHeader header;
     OvmfSevMetadataDesc descs[];
 } OvmfSevMetadata;
 
