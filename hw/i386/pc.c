@@ -100,6 +100,7 @@
 #include "e820_memory_layout.h"
 #include "fw_cfg.h"
 #include "trace.h"
+#include "sev.h"
 #include CONFIG_DEVICES
 
 #ifdef CONFIG_XEN_EMU
@@ -1097,6 +1098,9 @@ void pc_memory_init(PCMachineState *pcms,
             }
         }
     }
+
+    /* Initialize the SVSM */
+    sev_snp_svsm_init(MACHINE(pcms));
 
     /* Initialize PC system firmware */
     pc_system_firmware_init(pcms, rom_memory);

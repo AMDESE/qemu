@@ -464,6 +464,21 @@ static void machine_set_firmware(Object *obj, const char *value, Error **errp)
     ms->firmware = g_strdup(value);
 }
 
+static char *machine_get_svsm(Object *obj, Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+
+    return g_strdup(ms->svsm);
+}
+
+static void machine_set_svsm(Object *obj, const char *value, Error **errp)
+{
+    MachineState *ms = MACHINE(obj);
+
+    g_free(ms->svsm);
+    ms->svsm = g_strdup(value);
+}
+
 static void machine_set_suppress_vmdesc(Object *obj, bool value, Error **errp)
 {
     MachineState *ms = MACHINE(obj);
@@ -1002,6 +1017,11 @@ static void machine_class_init(ObjectClass *oc, void *data)
         machine_get_firmware, machine_set_firmware);
     object_class_property_set_description(oc, "firmware",
         "Firmware image");
+
+    object_class_property_add_str(oc, "svsm",
+        machine_get_svsm, machine_set_svsm);
+    object_class_property_set_description(oc, "svsm",
+        "SVSM image");
 
     object_class_property_add_bool(oc, "suppress-vmdesc",
         machine_get_suppress_vmdesc, machine_set_suppress_vmdesc);
