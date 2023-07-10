@@ -165,6 +165,11 @@ typedef enum {
 
 } ovmf_sev_metadata_desc_type;
 
+typedef enum {
+    OVMF_SEV_META_DATA,
+    SVSM_SEV_META_DATA,
+} ovmf_sev_metadata_type;
+
 typedef struct __attribute__((__packed__)) SevMetadataHeader {
     uint8_t signature[4];
     uint32_t len;
@@ -183,7 +188,19 @@ typedef struct __attribute__((__packed__)) OvmfSevMetadata {
     OvmfSevMetadataDesc descs[];
 } OvmfSevMetadata;
 
+typedef struct __attribute__((__packed__)) SvsmSevMetadataDesc {
+    uint64_t base;
+    uint32_t len;
+    ovmf_sev_metadata_desc_type type;
+} SvsmSevMetadataDesc;
+
+typedef struct __attribute__((__packed__)) SvsmSevMetadata {
+    SevMetadataHeader header;
+    SvsmSevMetadataDesc descs[];
+} SvsmSevMetadata;
+
 OvmfSevMetadata *pc_system_get_ovmf_sev_metadata_ptr(void);
+SvsmSevMetadata *pc_system_get_svsm_sev_metadata_ptr(void);
 
 void pc_pci_as_mapping_init(MemoryRegion *system_memory,
                             MemoryRegion *pci_address_space);
@@ -217,9 +234,14 @@ void pc_i8259_create(ISABus *isa_bus, qemu_irq *i8259_irqs);
 void pc_system_flash_create(PCMachineState *pcms);
 void pc_system_flash_cleanup_unused(PCMachineState *pcms);
 void pc_system_firmware_init(PCMachineState *pcms, MemoryRegion *rom_memory);
+
+/* pc_sysfw_guid_parse.c */
 bool pc_system_ovmf_table_find(const char *entry, uint8_t **data,
                                int *data_len);
 void pc_system_parse_ovmf_flash(uint8_t *flash_ptr, size_t flash_size);
+bool pc_system_svsm_table_find(const char *entry, uint8_t **data,
+                               int *data_len);
+void pc_system_parse_svsm_file(uint8_t *flash_ptr, size_t flash_size);
 
 /* hw/i386/acpi-common.c */
 void pc_madt_cpu_entry(int uid, const CPUArchIdList *apic_ids,

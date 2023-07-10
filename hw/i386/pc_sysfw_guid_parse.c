@@ -29,6 +29,7 @@
 #include "cpu.h"
 
 #define OVMF_SEV_META_DATA_GUID "dc886566-984a-4798-A75e-5585a7bf67cc"
+#define SVSM_SEV_META_DATA_GUID "be30189b-ab44-4a97-82dd-ea813941047e"
 
 typedef struct __attribute__((__packed__)) SevMetadataOffset {
     uint32_t offset;
@@ -44,6 +45,9 @@ typedef struct GuidParseInfo {
 
 #define OVMF_TABLE_FOOTER_GUID "96b582de-1fb2-45f7-baea-a366c55a082d"
 static GuidParseInfo ovmf_info;
+
+#define SVSM_TABLE_FOOTER_GUID "81384fea-ad48-4eb6-af4f-6ac49316df2b"
+static GuidParseInfo svsm_info;
 
 static void guid_parse_init(uint8_t *ptr, size_t size, const char *guid_str,
                             GuidParseInfo *info)
@@ -134,6 +138,25 @@ static bool guid_parse_find(const char *entry, uint8_t **data, int *data_len,
     return false;
 }
 
+static void pc_system_parse_svsm_sev_metadata(uint8_t *ptr, size_t size,
+                                              GuidParseInfo *info)
+{
+    SevMetadataHeader *metadata;
+    SevMetadataOffset *data;
+
+    if (!guid_parse_find(SVSM_SEV_META_DATA_GUID, (uint8_t **)&data, NULL, info)) {
+        return;
+    }
+
+    metadata = (SevMetadataHeader *)(ptr + size - data->offset);
+    if (memcmp(metadata->signature, "SVSM", 4) != 0) {
+        return;
+    }
+
+    info->metadata = g_malloc(metadata->len);
+    memcpy(info->metadata, metadata, metadata->len);
+}
+
 static void pc_system_parse_ovmf_sev_metadata(uint8_t *ptr, size_t size,
                                               GuidParseInfo *info)
 {
@@ -156,6 +179,11 @@ static void pc_system_parse_ovmf_sev_metadata(uint8_t *ptr, size_t size,
 OvmfSevMetadata *pc_system_get_ovmf_sev_metadata_ptr(void)
 {
     return (OvmfSevMetadata *)ovmf_info.metadata;
+}
+
+SvsmSevMetadata *pc_system_get_svsm_sev_metadata_ptr(void)
+{
+    return (SvsmSevMetadata *)svsm_info.metadata;
 }
 
 /**
@@ -204,4 +232,46 @@ bool pc_system_ovmf_table_find(const char *entry, uint8_t **data,
                                int *data_len)
 {
     return guid_parse_find(entry, data, data_len, &ovmf_info);
+}
+
+/**
+ * pc_system_parse_svsm_file - Find the GUIDed table within the SVSM file and
+ * prepare for locating entries within it.
+ *
+ * @svsm_ptr: Pointer to the SVSM file contents
+ * @svsm_size: Size of the SVSM file contents
+ */
+void pc_system_parse_svsm_file(uint8_t *svsm_ptr, size_t svsm_size)
+{
+    /* Should only be called once */
+    if (svsm_info.parsed) {
+        return;
+    }
+
+    svsm_info.parsed = true;
+
+    /*
+     * If this is an SVSM there will be a table footer GUID at the end of the
+     * file. If it's not found, silently abort the flash parsing.
+     */
+    guid_parse_init(svsm_ptr + svsm_size - 16, svsm_size,
+                    SVSM_TABLE_FOOTER_GUID, &svsm_info);
+
+    pc_system_parse_svsm_sev_metadata(svsm_ptr, svsm_size, &svsm_info);
+}
+
+/**
+ * pc_system_svsm_table_find - Find the data associated with an entry in SVSM's
+ * GUIDed table.
+ *
+ * @entry: GUID string of the entry to lookup
+ * @data: Filled with a pointer to the entry's value (if not NULL)
+ * @data_len: Filled with the length of the entry's value (if not NULL). Pass
+ *            NULL here if the length of data is known.
+ *
+ * Return: true if the entry was found in the SVSM table; false otherwise.
+ */
+bool pc_system_svsm_table_find(const char *entry, uint8_t **data, int *data_len)
+{
+    return guid_parse_find(entry, data, data_len, &svsm_info);
 }
