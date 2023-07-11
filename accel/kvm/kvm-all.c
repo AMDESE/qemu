@@ -2962,6 +2962,49 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
 #define DISCARD_PRIVATE 2
 #define DISCARD_NONE 3
 
+static int kvm_discard_memory(const MemoryRegionSection *section,
+                              bool shared_to_private)
+{
+    ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
+    HostMemoryBackendPrivateMemfdClass *mfdc;
+    HostMemoryBackendPrivateMemfd *backend;
+    ram_addr_t offset;
+    RAMBlock *rb;
+    void *addr;
+
+    if (!cgs) {
+        warn_report("Unable to convert memory, not a confidential VM");
+        return 0;
+    }
+
+    /*
+     * With KVM_MEMORY_(UN)ENCRYPT_REG_REGION by kvm_encrypt_mem(),
+     * operation on underlying file descriptor is only for releasing
+     * unnecessary pages. Some facilities like VFIO may disable discard
+     * in QEMU, and there are also direct command-line parameters to
+     * control how discarding is handling, so take those into account.
+     */
+    if (!((shared_to_private &&
+          (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_SHARED)) ||
+        (!shared_to_private &&
+          (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_PRIVATE)))) {
+        return 0;
+    }
+
+    if (!object_dynamic_cast(section->mr->owner,
+                            TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
+        return 0;
+    }
+
+    backend = MEMORY_BACKEND_MEMFD_PRIVATE(section->mr->owner);
+    mfdc = MEMORY_BACKEND_MEMFD_PRIVATE_GET_CLASS(backend);
+    addr = memory_region_get_ram_ptr(section->mr) +
+           section->offset_within_region;
+    rb = qemu_ram_block_from_host(addr, false, &offset);
+
+    return mfdc->discard(OBJECT(backend), rb, offset, int128_get64(section->size), shared_to_private);
+}
+
 int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
 {
     MemoryRegionSection section;
@@ -2970,46 +3013,22 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool shared_to_private)
     trace_kvm_convert_memory(start, size, shared_to_private ? "shared_to_private" : "private_to_shared");
     section = memory_region_find(get_system_memory(), start, size);
     if (!section.mr) {
+        warn_report("Unable to convert memory, invalid address: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d",
+                    start, size, shared_to_private);
         return -1;
     }
 
     ret = kvm_encrypt_reg_region(start, size, shared_to_private);
+    if (ret) {
+        warn_report("Failed to convert memory, invalid address: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d, ret: %d",
+                    start, size, shared_to_private, ret);
+        goto out;
+    }
 
-    if (object_dynamic_cast(section.mr->owner,
-                            TYPE_MEMORY_BACKEND_MEMFD_PRIVATE)) {
-        ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
-        HostMemoryBackendPrivateMemfd *backend = MEMORY_BACKEND_MEMFD_PRIVATE(section.mr->owner);
-        HostMemoryBackendPrivateMemfdClass *mfdc = MEMORY_BACKEND_MEMFD_PRIVATE_GET_CLASS(backend);
-        ram_addr_t offset;
-        RAMBlock *rb;
-        void *addr;
-
-        /*
-         * With KVM_MEMORY_(UN)ENCRYPT_REG_REGION by kvm_encrypt_mem(),
-         * operation on underlying file descriptor is only for releasing
-         * unnecessary pages. Some facilities like VFIO may disable discard
-         * in QEMU, and there are also direct command-line parameters to
-         * control how discarding is handling, so take those into account.
-         */
-        if (
-            ((shared_to_private &&
-              (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_SHARED)) ||
-             (!shared_to_private &&
-              (cgs->discard == DISCARD_BOTH || cgs->discard == DISCARD_PRIVATE)))) {
-            addr = memory_region_get_ram_ptr(section.mr) +
-                   section.offset_within_region;
-            rb = qemu_ram_block_from_host(addr, false, &offset);
-            ret = mfdc->discard(OBJECT(backend), rb, offset, size, shared_to_private);
-            ret = 0;
-            if (ret) {
-                warn_report("Failed to convert range: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d ret %d",
-                            start, size, shared_to_private, ret);
-                goto out;
-            }
-        }
-    } else {
-        warn_report("Unkonwn start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d",
-                    start, size, shared_to_private);
+    ret = kvm_discard_memory(&section, shared_to_private);
+    if (ret) {
+        warn_report("Failed to discard memory, invalid address: start 0x%"HWADDR_PRIx" size 0x%"HWADDR_PRIx" shared_to_private %d, ret: %d",
+                    start, size, shared_to_private, ret);
     }
 
 out:
