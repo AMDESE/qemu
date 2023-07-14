@@ -1289,8 +1289,16 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, SevLaunchUpdateData *data
             sev_snp_cpuid_report_mismatches(&snp_cpuid_info, data->hva);
             error_report("SEV-SNP: failed update CPUID page");
         }
+
+        goto out;
     }
 
+    ret = kvm_convert_memory(data->gpa, data->len, true);
+    if (ret) {
+        error_report("SEV-SNP: failed to configure initial private guest memory");
+    }
+
+out:
     return ret;
 }
 
