@@ -53,6 +53,33 @@ int iommufd_device_detach_hwpt(IOMMUFDDevice *idev)
     return idevc->detach_hwpt(idev);
 }
 
+int iommufd_device_pasid_attach_hwpt(IOMMUFDDevice *idev, uint32_t pasid,
+                                     uint32_t hwpt_id)
+{
+    IOMMUFDDeviceClass *idevc;
+
+    idevc = IOMMU_DEVICE_GET_CLASS(idev);
+
+    if (!idevc->pasid_attach_hwpt) {
+        return -EINVAL;
+    }
+
+    return idevc->pasid_attach_hwpt(idev, pasid, hwpt_id);
+}
+
+int iommufd_device_pasid_detach_hwpt(IOMMUFDDevice *idev, uint32_t pasid)
+{
+    IOMMUFDDeviceClass *idevc;
+
+    idevc = IOMMU_DEVICE_GET_CLASS(idev);
+
+    if (!idevc->pasid_detach_hwpt) {
+        return -EINVAL;
+    }
+
+    return idevc->pasid_detach_hwpt(idev, pasid);
+}
+
 int iommufd_device_get_info(IOMMUFDDevice *idev,
                             enum iommu_hw_info_type *type,
                             uint32_t len, void *data)
