@@ -506,8 +506,8 @@ struct kvm_nested_state {
 	 * KVM_{GET,PUT}_NESTED_STATE ioctl values.
 	 */
 	union {
-		__DECLARE_FLEX_ARRAY(struct kvm_vmx_nested_state_data, vmx);
-		__DECLARE_FLEX_ARRAY(struct kvm_svm_nested_state_data, svm);
+		struct kvm_vmx_nested_state_data vmx[0];
+		struct kvm_svm_nested_state_data svm[0];
 	} data;
 };
 
