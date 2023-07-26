@@ -3667,19 +3667,20 @@ void memory_region_init_ram_private(MemoryRegion *mr,
 {
     int shared_fd;
     Error *err = NULL;
+    uint64_t size_aligned = HOST_PAGE_ALIGN(size);
 
-    shared_fd = qemu_memfd_create("rom-backend-memfd-shared", size, false, 0, 0, errp);
+    shared_fd = qemu_memfd_create("rom-backend-memfd-shared", size_aligned, false, 0, 0, errp);
     if (shared_fd == -1) {
         return;
     }
 
-    memory_region_init_ram_from_fd(mr, owner, name, size, RAM_SHARED|RAM_NORESERVE, shared_fd, 0, &err);
+    memory_region_init_ram_from_fd(mr, owner, name, size_aligned, RAM_SHARED|RAM_NORESERVE, shared_fd, 0, &err);
     if (err) {
         error_propagate(errp, err);
         return;
     }
 
-    memory_region_set_restricted_fd(mr, size, &err);
+    memory_region_set_restricted_fd(mr, size_aligned, &err);
     if (err) {
         error_propagate(errp, err);
         return;
