@@ -1211,9 +1211,9 @@ struct kvm_ppc_resize_hpt {
 #define KVM_CAP_S390_PROTECTED_ASYNC_DISABLE 224
 #define KVM_CAP_DIRTY_LOG_RING_WITH_BITMAP 225
 #define KVM_CAP_PMU_EVENT_MASKED_EVENTS 226
-#define KVM_CAP_MEMORY_ATTRIBUTES 227
-#define KVM_CAP_USER_MEMORY2 228
-#define KVM_CAP_VM_TYPES 229
+#define KVM_CAP_USER_MEMORY2 230
+#define KVM_CAP_MEMORY_ATTRIBUTES 231
+#define KVM_CAP_VM_TYPES 232
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
@@ -2339,7 +2339,7 @@ struct kvm_s390_zpci_op {
 
 /* Available with KVM_CAP_MEMORY_ATTRIBUTES */
 #define KVM_GET_SUPPORTED_MEMORY_ATTRIBUTES    _IOR(KVMIO,  0xd2, __u64)
-#define KVM_SET_MEMORY_ATTRIBUTES              _IOWR(KVMIO,  0xd3, struct kvm_memory_attributes)
+#define KVM_SET_MEMORY_ATTRIBUTES              _IOW(KVMIO,  0xd3, struct kvm_memory_attributes)
 
 struct kvm_memory_attributes {
 	__u64 address;
