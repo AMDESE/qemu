@@ -2950,7 +2950,7 @@ int kvm_encrypt_reg_region(hwaddr start, hwaddr size, bool reg_region)
     attr.flags = 0;
 
     r = kvm_vm_ioctl(kvm_state, KVM_SET_MEMORY_ATTRIBUTES, &attr);
-    if (r || attr.size != 0) {
+    if (r) {
         warn_report("%s: failed to set memory attr (0x%lx+%#zx) error '%s'",
                      __func__, start, size, strerror(errno));
     }
