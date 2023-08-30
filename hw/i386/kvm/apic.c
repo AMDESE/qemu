@@ -18,19 +18,19 @@
 #include "sysemu/kvm.h"
 #include "kvm/kvm_i386.h"
 
-static inline void kvm_apic_set_reg(struct kvm_lapic_state *kapic,
+static inline void kvm_apic_set_reg(struct kvm_lapic_state_w_extapic *kapic,
                                     int reg_id, uint32_t val)
 {
     *((uint32_t *)(kapic->regs + (reg_id << 4))) = val;
 }
 
-static inline uint32_t kvm_apic_get_reg(struct kvm_lapic_state *kapic,
+static inline uint32_t kvm_apic_get_reg(struct kvm_lapic_state_w_extapic *kapic,
                                         int reg_id)
 {
     return *((uint32_t *)(kapic->regs + (reg_id << 4)));
 }
 
-static void kvm_put_apic_state(APICCommonState *s, struct kvm_lapic_state *kapic)
+static void kvm_put_apic_state(APICCommonState *s, struct kvm_lapic_state_w_extapic *kapic)
 {
     int i;
 
@@ -57,9 +57,17 @@ static void kvm_put_apic_state(APICCommonState *s, struct kvm_lapic_state *kapic
     }
     kvm_apic_set_reg(kapic, 0x38, s->initial_count);
     kvm_apic_set_reg(kapic, 0x3e, s->divide_conf);
+
+    if (arch_has_extapic(s->cpu)) {
+        kvm_apic_set_reg(kapic, 0x40, s->efeat);
+        kvm_apic_set_reg(kapic, 0x41, s->ectrl);
+        for (i = 0; i < 4; i++) {
+	    kvm_apic_set_reg(kapic, 0x50 + i, s->eilvt[i]);
+	}
+    }
 }
 
-void kvm_get_apic_state(DeviceState *dev, struct kvm_lapic_state *kapic)
+void kvm_get_apic_state(DeviceState *dev, struct kvm_lapic_state_w_extapic *kapic)
 {
     APICCommonState *s = APIC_COMMON(dev);
     int i, v;
@@ -90,6 +98,14 @@ void kvm_get_apic_state(DeviceState *dev, struct kvm_lapic_state *kapic)
 
     v = (s->divide_conf & 3) | ((s->divide_conf >> 1) & 4);
     s->count_shift = (v + 1) & 7;
+
+    if (arch_has_extapic(s->cpu)) {
+        s->efeat = kvm_apic_get_reg(kapic, 0x40);
+        s->ectrl = kvm_apic_get_reg(kapic, 0x41);
+        for (i = 0; i < 4; i++) {
+            s->eilvt[i] = kvm_apic_get_reg(kapic, 0x50 + i);
+        }
+    }
 
     s->initial_count_load_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     apic_next_timer(s, s->initial_count_load_time);
@@ -138,17 +154,29 @@ static void kvm_apic_vapic_base_update(APICCommonState *s)
 static void kvm_apic_put(CPUState *cs, run_on_cpu_data data)
 {
     APICCommonState *s = data.host_ptr;
-    struct kvm_lapic_state kapic;
+    struct kvm_lapic_state_w_extapic *kapic;
     int ret;
 
     kvm_put_apicbase(s->cpu, s->apicbase);
-    kvm_put_apic_state(s, &kapic);
 
-    ret = kvm_vcpu_ioctl(CPU(s->cpu), KVM_SET_LAPIC, &kapic);
+    if (arch_has_extapic(s->cpu))
+	kapic = g_malloc0(KVM_APIC_EXT_REG_SIZE * sizeof(__u8));
+    else
+	kapic = g_malloc0(KVM_APIC_REG_SIZE * sizeof(__u8));
+
+    kvm_put_apic_state(s, kapic);
+
+    if (arch_has_extapic(s->cpu))
+	ret = kvm_vcpu_ioctl(CPU(s->cpu), KVM_SET_LAPIC_W_EXTAPIC, kapic);
+    else
+        ret = kvm_vcpu_ioctl(CPU(s->cpu), KVM_SET_LAPIC, kapic);
+
     if (ret < 0) {
-        fprintf(stderr, "KVM_SET_LAPIC failed: %s\n", strerror(-ret));
-        abort();
+            fprintf(stderr, "KVM_SET_LAPIC failed EXT: %s ioctl %lx\n",
+		    strerror(-ret), KVM_SET_LAPIC_W_EXTAPIC);
+            abort();
     }
+    free(kapic);
 }
 
 static void kvm_apic_post_load(APICCommonState *s)

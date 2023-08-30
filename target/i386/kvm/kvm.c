@@ -4975,16 +4975,24 @@ static int kvm_get_mp_state(X86CPU *cpu)
 static int kvm_get_apic(X86CPU *cpu)
 {
     DeviceState *apic = cpu->apic_state;
-    struct kvm_lapic_state kapic;
+    struct kvm_lapic_state_w_extapic *kapic;
     int ret;
 
+    if (arch_has_extapic(cpu))
+        kapic = g_malloc0(KVM_APIC_EXT_REG_SIZE * sizeof(__u8));
+    else
+        kapic = g_malloc0(KVM_APIC_REG_SIZE * sizeof(__u8));
     if (apic && kvm_irqchip_in_kernel()) {
-        ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_LAPIC, &kapic);
-        if (ret < 0) {
-            return ret;
-        }
+	    if (arch_has_extapic(cpu))
+		ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_LAPIC_W_EXTAPIC, kapic);
+	    else
+		ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_LAPIC, kapic);
 
-        kvm_get_apic_state(apic, &kapic);
+	if (ret < 0)
+		return ret;
+	kvm_get_apic_state(apic, kapic);
+
+	free(kapic);
     }
     return 0;
 }
