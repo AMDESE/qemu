@@ -952,6 +952,21 @@ FeatureWordInfo feature_word_info[FEATURE_WORDS] = {
         .cpuid = { .eax = 1, .reg = R_ECX, },
         .tcg_features = TCG_EXT_FEATURES,
     },
+     [FEAT_8000_001B_EAX] = {
+        .type = CPUID_FEATURE_WORD,
+        .feat_names = {
+            "ibsffv", "ibsfetchsam", "ibsopsam", "ibsrdwropcnt",
+            "ibsopcnt", "ibsbrntrgt", "ibsopcntext", "ibsripinval",
+            "ibsopbrnf", "ibsfetchctlextd", NULL, "ibszen4ext",
+            "ibsdtlstat", NULL, NULL, NULL,
+            NULL, NULL, NULL, "ibsloadlatfil",
+            NULL, NULL, NULL, NULL,
+            NULL, NULL, NULL, NULL,
+            NULL, NULL, NULL, NULL,
+        },
+        .cpuid = { .eax = 0x8000001B, .reg = R_EAX, },
+        .tcg_features = 0,
+    },
     /* Feature names that are already defined on feature_name[] but
      * are set on CPUID[8000_0001].EDX on AMD CPUs don't have their
      * names on feat_names below. They are copied automatically
@@ -5494,6 +5509,11 @@ static const X86CPUDefinition builtin_x86_defs[] = {
         .features[FEAT_SVM] =
             CPUID_SVM_NPT | CPUID_SVM_NRIPSAVE | CPUID_SVM_VNMI |
             CPUID_SVM_SVME_ADDR_CHK,
+        .features[FEAT_8000_001B_EAX]  =
+            CPUID_IBS_AVAIL | CPUID_IBS_FETCHSAM | CPUID_IBS_OPSAM |
+            CPUID_IBS_RDWROPCNT | CPUID_IBS_OPCNT | CPUID_IBS_BRNTRGT |
+            CPUID_IBS_OPCNTEXT | CPUID_IBS_RIPINVALIDCHK | CPUID_IBS_OPBRNFUSE |
+            CPUID_IBS_OPBRNFUSE | CPUID_IBS_FETCHCTLEXTD | CPUID_IBS_ZEN4_EXT,
         .xlevel = 0x80000022,
         .model_id = "AMD EPYC-Genoa Processor",
         .cache_info = &epyc_genoa_cache_info,
@@ -7249,6 +7269,11 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         *ecx = env->features[FEAT_8000_0001_ECX];
         *edx = env->features[FEAT_8000_0001_EDX];
 
+        if (kvm_enabled() && !cpu->enable_pmu &&
+            (env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_IBS)) {
+            *ecx &= ~CPUID_EXT3_IBS;
+        }
+
         if (tcg_enabled() && env->cpuid_vendor1 == CPUID_VENDOR_INTEL_1 &&
             !(env->hflags & HF_LMA_MASK)) {
             *edx &= ~CPUID_EXT2_SYSCALL;
@@ -7409,6 +7434,12 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         *ecx = 0;
         *edx = 0;
         break;
+    case 0x8000001B:
+	if (!(env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_IBS))
+	    *eax = 0;
+	else
+	    *eax = env->features[FEAT_8000_001B_EAX];
+	break;
     case 0x8000001F:
         *eax = *ebx = *ecx = *edx = 0;
         if (sev_enabled()) {
@@ -7861,6 +7892,7 @@ void x86_cpu_expand_features(X86CPU *cpu, Error **errp)
         x86_cpu_adjust_feat_level(cpu, FEAT_8000_0001_ECX);
         x86_cpu_adjust_feat_level(cpu, FEAT_8000_0007_EDX);
         x86_cpu_adjust_feat_level(cpu, FEAT_8000_0008_EBX);
+        x86_cpu_adjust_feat_level(cpu, FEAT_8000_001B_EAX);
         x86_cpu_adjust_feat_level(cpu, FEAT_C000_0001_EDX);
         x86_cpu_adjust_feat_level(cpu, FEAT_SVM);
         x86_cpu_adjust_feat_level(cpu, FEAT_XSAVE);

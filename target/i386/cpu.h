@@ -636,6 +636,7 @@ typedef enum FeatureWord {
     FEAT_8000_0007_EBX, /* CPUID[8000_0007].EBX */
     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
     FEAT_8000_0008_EBX, /* CPUID[8000_0008].EBX */
+    FEAT_8000_001B_EAX, /* CPUID[8000_001B].EAX */
     FEAT_8000_0021_EAX, /* CPUID[8000_0021].EAX */
     FEAT_8000_0021_EBX, /* CPUID[8000_0021].EBX */
     FEAT_8000_0022_EAX, /* CPUID[8000_0022].EAX */
@@ -815,6 +816,28 @@ uint64_t x86_cpu_get_supported_feature_word(X86CPU *cpu, FeatureWord w);
 #define CPUID_SVM_VGIF            (1U << 16)
 #define CPUID_SVM_VNMI            (1U << 25)
 #define CPUID_SVM_SVME_ADDR_CHK   (1U << 28)
+
+#define CPUID_IBS_AVAIL           (1U << 0)
+#define CPUID_IBS_FETCHSAM        (1U << 1)
+#define CPUID_IBS_OPSAM           (1U << 2)
+#define CPUID_IBS_RDWROPCNT       (1U << 3)
+#define CPUID_IBS_OPCNT           (1U << 4)
+#define CPUID_IBS_BRNTRGT         (1U << 5)
+#define CPUID_IBS_OPCNTEXT        (1U << 6)
+#define CPUID_IBS_RIPINVALIDCHK   (1U << 7)
+#define CPUID_IBS_OPBRNFUSE       (1U << 8)
+#define CPUID_IBS_FETCHCTLEXTD    (1U << 9)
+#define CPUID_IBS_ZEN4_EXT        (1U << 11)
+#define CPUID_IBS_DTLBSTAT        (1U << 12)
+#define CPUID_IBS_LOADLATFIL      (1U << 19)
+
+#define CPUID_IBS_BASIC     (CPUID_IBS_AVAIL | CPUID_IBS_FETCHSAM\
+			     | CPUID_IBS_OPSAM)
+#define CPUID_IBS_EXTENDED  (CPUID_IBS_BASIC | CPUID_IBS_RDWROPCNT |\
+			     CPUID_IBS_OPCNT | CPUID_IBS_BRNTRGT |\
+			     CPUID_IBS_OPCNTEXT | CPUID_IBS_RIPINVALIDCHK |\
+			     CPUID_IBS_OPBRNFUSE | CPUID_IBS_FETCHCTLEXTD |\
+			     CPUID_IBS_ZEN4_EXT)
 
 /* Support RDFSBASE/RDGSBASE/WRFSBASE/WRGSBASE */
 #define CPUID_7_0_EBX_FSGSBASE          (1U << 0)
