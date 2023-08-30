@@ -174,6 +174,9 @@ struct APICCommonState {
     uint32_t lvt[APIC_LVT_NB];
     uint32_t esr; /* error register */
     uint32_t icr[2];
+    uint32_t efeat;
+    uint32_t ectrl;
+    uint32_t eilvt[4];
 
     uint32_t divide_conf;
     int count_shift;
@@ -211,6 +214,13 @@ void vapic_report_tpr_access(DeviceState *dev, CPUState *cpu, target_ulong ip,
 
 int apic_get_ppr(APICCommonState *s);
 uint32_t apic_get_current_count(APICCommonState *s);
+
+static inline bool arch_has_extapic(X86CPU *cpu)
+{
+    CPUX86State *env = &cpu->env;
+
+    return !!(env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_EXTAPIC);
+}
 
 static inline void apic_set_bit(uint32_t *tab, int index)
 {
