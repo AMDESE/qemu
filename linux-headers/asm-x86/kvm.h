@@ -557,7 +557,11 @@ struct kvm_pmu_event_filter {
 #define KVM_VCPU_TSC_CTRL 0 /* control group for the timestamp counter (TSC) */
 #define   KVM_VCPU_TSC_OFFSET 0 /* attribute for the TSC offset */
 
+/* x86-specific KVM_EXIT_HYPERCALL flags. */
+#define KVM_EXIT_HYPERCALL_LONG_MODE	BIT(0)
+
 #define KVM_X86_DEFAULT_VM	0
-#define KVM_X86_PROTECTED_VM	1
+#define KVM_X86_SW_PROTECTED_VM	1
+#define KVM_X86_SNP_VM		3
 
 #endif /* _ASM_X86_KVM_H */
