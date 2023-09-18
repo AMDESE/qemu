@@ -1786,7 +1786,7 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 
     if (kvm_has_restricted_memory()) {
         bool has_restricted_memory_support =
-            kvm_check_extension(kvm_state, KVM_CAP_VM_TYPES) & BIT(KVM_X86_PROTECTED_VM);
+            kvm_check_extension(kvm_state, KVM_CAP_VM_TYPES) & BIT(KVM_X86_SW_PROTECTED_VM);
         X86MachineState *x86ms = X86_MACHINE(qdev_get_machine());
 
         if (!has_restricted_memory_support) {
