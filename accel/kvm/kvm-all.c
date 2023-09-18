@@ -294,7 +294,7 @@ int kvm_create_gmemfd(uint64_t size, uint64_t flags)
 
     gmem.size = size;
     if (flags)
-        gmem.flags = KVM_GUEST_MEMFD_HUGE_PMD;
+        gmem.flags = KVM_GUEST_MEMFD_ALLOW_HUGEPAGE;
     else
         gmem.flags = 0;
 
