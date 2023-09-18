@@ -3200,11 +3200,11 @@ skip:
             }
             break;
         case KVM_EXIT_MEMORY_FAULT:
-                trace_kvm_memory_fault(run->memory.gpa >> 12, run->memory.size,
-                                       run->memory.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE);
-                 ret = kvm_convert_memory(run->memory.gpa,
-                                          run->memory.size,
-                                          run->memory.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE);
+                trace_kvm_memory_fault(run->memory_fault.gpa >> 12, run->memory_fault.size,
+                                       run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE);
+                 ret = kvm_convert_memory(run->memory_fault.gpa,
+                                          run->memory_fault.size,
+                                          run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE);
             break;
         default:
             DPRINTF("kvm_arch_handle_exit\n");
