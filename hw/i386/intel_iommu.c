@@ -2722,7 +2722,8 @@ static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
     iommufd->listener = iommufd_s2domain_memory_listener;
 
     ret = iommufd_backend_alloc_hwpt(iommufd->fd, idev->dev_id,
-                                     ioas_id, IOMMU_HWPT_TYPE_DEFAULT,
+                                     ioas_id, IOMMU_HWPT_ALLOC_NEST_PARENT,
+				     IOMMU_HWPT_TYPE_DEFAULT,
                                      0, NULL, s2_hwptid);
     if (!ret) {
         memory_listener_register(&iommufd->listener, &address_space_memory);
@@ -2777,7 +2778,7 @@ static int vtd_init_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt,
     }
 
     ret = iommufd_backend_alloc_hwpt(idev->iommufd->fd, idev->dev_id,
-                                     s2_hwptid, IOMMU_HWPT_TYPE_VTD_S1,
+                                     s2_hwptid, 0, IOMMU_HWPT_TYPE_VTD_S1,
                                      sizeof(vtd), &vtd, &hwpt_id);
     if (ret) {
         vtd_put_s2_hwpt(idev);
@@ -4136,7 +4137,7 @@ static void vtd_invalidate_piotlb(VTDPASIDAddressSpace *vtd_pasid_as,
         goto out;
     }
     if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id,
-                                         sizeof(*cache), cache)) {
+                                         sizeof(*cache), 1, cache)) {
         error_report("Cache flush failed");
     }
 out:
@@ -4180,28 +4181,20 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
                                         uint16_t domain_id,
                                         uint32_t pasid)
 {
-    struct iommu_hwpt_vtd_s1_invalidate_desc *cache_info;
-    struct iommu_hwpt_vtd_s1_invalidate s1_inv = { 0 };
+    struct iommu_hwpt_vtd_s1_invalidate cache_info = { 0 };
     VTDPIOTLBInvInfo piotlb_info;
     VTDIOTLBPageInvInfo info;
-    uint32_t request_nr = 1;
     VTDAddressSpace *vtd_as;
     VTDContextEntry ce;
     VTDPASIDEntry pe;
     int ret;
 
-    cache_info = g_malloc0(sizeof(*cache_info));
-
-    cache_info->addr = 0;
-    cache_info->npages = (uint64_t)-1;
-
-    s1_inv.entry_size = sizeof(struct iommu_hwpt_vtd_s1_invalidate_desc);
-    s1_inv.entry_nr_uptr = (uint64_t)&request_nr;
-    s1_inv.inv_data_uptr = (uint64_t)cache_info;
+    cache_info.addr = 0;
+    cache_info.npages = (uint64_t)-1;
 
     piotlb_info.domain_id = domain_id;
     piotlb_info.pasid = pasid;
-    piotlb_info.inv_data = &s1_inv;
+    piotlb_info.inv_data = &cache_info;
 
     info.domain_id = domain_id;
     info.pasid = pasid;
@@ -4217,7 +4210,6 @@ static void vtd_piotlb_pasid_invalidate(IntelIOMMUState *s,
     g_hash_table_foreach_remove(s->p_iotlb, vtd_hash_remove_by_pasid,
                                 &info);
     vtd_iommu_unlock(s);
-    g_free(cache_info);
 
     QLIST_FOREACH(vtd_as, &(s->vtd_as_with_notifiers), next) {
         uint32_t rid2pasid = 0;
@@ -4240,29 +4232,21 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
                                        uint32_t pasid, hwaddr addr, uint8_t am,
                                        bool ih)
 {
-    struct iommu_hwpt_vtd_s1_invalidate_desc *cache_info;
-    struct iommu_hwpt_vtd_s1_invalidate s1_inv = { 0 };
+    struct iommu_hwpt_vtd_s1_invalidate cache_info = { 0 };
     VTDPIOTLBInvInfo piotlb_info;
     VTDIOTLBPageInvInfo info;
-    uint32_t request_nr = 1;
     VTDAddressSpace *vtd_as;
     VTDContextEntry ce;
     hwaddr size = (1 << am) * VTD_PAGE_SIZE;
     int ret;
 
-    cache_info = g_malloc0(sizeof(*cache_info));
-
-    cache_info->addr = addr;
-    cache_info->npages = 1 << am;
-    cache_info->flags = ih ? IOMMU_VTD_QI_FLAGS_LEAF : 0;
-
-    s1_inv.entry_size = sizeof(struct iommu_hwpt_vtd_s1_invalidate_desc);
-    s1_inv.entry_nr_uptr = (uint64_t)&request_nr;
-    s1_inv.inv_data_uptr = (uint64_t)cache_info;
+    cache_info.addr = addr;
+    cache_info.npages = 1 << am;
+    cache_info.flags = ih ? IOMMU_VTD_QI_FLAGS_LEAF : 0;
 
     piotlb_info.domain_id = domain_id;
     piotlb_info.pasid = pasid;
-    piotlb_info.inv_data = &s1_inv;
+    piotlb_info.inv_data = &cache_info;
 
     info.is_piotlb = true;
     info.domain_id = domain_id;
@@ -4281,7 +4265,6 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
     g_hash_table_foreach_remove(s->p_iotlb,
                                 vtd_hash_remove_by_page, &info);
     vtd_iommu_unlock(s);
-    g_free(cache_info);
 
     QLIST_FOREACH(vtd_as, &(s->vtd_as_with_notifiers), next) {
         ret = vtd_dev_to_context_entry(s, pci_bus_num(vtd_as->bus),

@@ -247,14 +247,15 @@ int iommufd_backend_copy_dma(IOMMUFDBackend *be, uint32_t src_ioas,
 }
 
 int iommufd_backend_alloc_hwpt(int iommufd, uint32_t dev_id,
-                               uint32_t pt_id, uint32_t hwpt_type,
+                               uint32_t pt_id, uint32_t flags,
+                               uint32_t hwpt_type,
                                uint32_t len, void *data_ptr,
                                uint32_t *out_hwpt)
 {
     int ret;
     struct iommu_hwpt_alloc alloc_hwpt = {
         .size = sizeof(struct iommu_hwpt_alloc),
-        .flags = 0,
+        .flags = flags,
         .dev_id = dev_id,
         .pt_id = pt_id,
         .hwpt_type = hwpt_type,
@@ -275,23 +276,24 @@ int iommufd_backend_alloc_hwpt(int iommufd, uint32_t dev_id,
 }
 
 int iommufd_backend_invalidate_cache(int iommufd, uint32_t hwpt_id,
-                                     uint32_t len, void *data_ptr)
+                                     uint32_t req_len, uint32_t req_num,
+                                     void *reqs_ptr)
 {
     int ret;
     struct iommu_hwpt_invalidate cache = {
         .size = sizeof(cache),
         .hwpt_id = hwpt_id,
-        .data_len = len,
-        .__reserved = 0,
-        .data_uptr = (uint64_t)data_ptr,
+        .req_len = req_len,
+        .req_num = req_num,
+        .reqs_uptr = (uint64_t)reqs_ptr,
     };
 
     ret = ioctl(iommufd, IOMMU_HWPT_INVALIDATE, &cache);
     if (ret) {
         error_report("IOMMU_HWPT_INVALIDATE failed: %s", strerror(errno));
     }
-    trace_iommufd_backend_invalidate_cache(iommufd, hwpt_id,
-                                           len, (uint64_t)data_ptr, ret);
+    trace_iommufd_backend_invalidate_cache(iommufd, hwpt_id, req_len,
+                                           req_num, (uint64_t)reqs_ptr, ret);
     return !ret ? 0 : -errno;
 }
 
