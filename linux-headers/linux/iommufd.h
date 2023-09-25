@@ -47,7 +47,7 @@ enum {
 	IOMMUFD_CMD_VFIO_IOAS,
 	IOMMUFD_CMD_HWPT_ALLOC,
 	IOMMUFD_CMD_GET_HW_INFO,
-	IOMMUFD_CMD_RESV_IOVA_RANGES,
+//	IOMMUFD_CMD_RESV_IOVA_RANGES,
 	IOMMUFD_CMD_HWPT_INVALIDATE,
 	IOMMUFD_CMD_SET_DEV_DATA,
 	IOMMUFD_CMD_UNSET_DEV_DATA,
@@ -351,6 +351,19 @@ struct iommu_vfio_ioas {
 };
 #define IOMMU_VFIO_IOAS _IO(IOMMUFD_TYPE, IOMMUFD_CMD_VFIO_IOAS)
 
+#if 1
+/**
+ * enum iommufd_hwpt_alloc_flags - Flags for HWPT allocation
+ * @IOMMU_HWPT_ALLOC_NEST_PARENT: If set, the domain to allocate is to be used
+ *                                as parent domain of a stage-1 domain under
+ *                                nested translation. It can still be used in
+ *                                single stage translation.
+ */
+enum iommufd_hwpt_alloc_flags {
+	IOMMU_HWPT_ALLOC_NEST_PARENT = 1 << 0,
+};
+#endif
+
 /**
  * enum iommu_hwpt_vtd_s1_flags - Intel VT-d stage-1 page table
  *                                entry attributes
@@ -618,6 +631,7 @@ struct iommu_resv_iova_range {
 	__aligned_u64 last;
 };
 
+#if 0
 /**
  * struct iommu_resv_iova_ranges - ioctl(IOMMU_RESV_IOVA_RANGES)
  * @size: sizeof(struct iommu_resv_iova_ranges)
@@ -650,6 +664,7 @@ struct iommu_resv_iova_ranges {
 	__aligned_u64 resv_iovas;
 };
 #define IOMMU_RESV_IOVA_RANGES _IO(IOMMUFD_TYPE, IOMMUFD_CMD_RESV_IOVA_RANGES)
+#endif
 
 /**
  * enum iommu_hwpt_vtd_s1_invalidate_flags - Flags for Intel VT-d

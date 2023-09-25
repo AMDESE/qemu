@@ -77,6 +77,7 @@ int iommufd_device_get_info(IOMMUFDDevice *idev,
     return ret;
 }
 
+#if 0
 /* Caller needs to free the resv pointer */
 int iommufd_device_get_resv_iova(IOMMUFDDevice *idev,
                                  struct iommu_resv_iova_range **resv)
@@ -109,6 +110,7 @@ again:
 
     return ret;
 }
+#endif
 
 void iommufd_device_init(void *_idev, size_t instance_size,
                          const char *mrtypename, IOMMUFDBackend *iommufd,
