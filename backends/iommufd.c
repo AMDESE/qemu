@@ -263,6 +263,9 @@ int iommufd_backend_alloc_hwpt(int iommufd, uint32_t dev_id,
         .__reserved = 0,
     };
 
+    if (!data_ptr)
+        alloc_hwpt.flags = IOMMU_HWPT_ALLOC_NEST_PARENT;
+
     ret = ioctl(iommufd, IOMMU_HWPT_ALLOC, &alloc_hwpt);
     trace_iommufd_backend_alloc_hwpt(iommufd, dev_id, pt_id, hwpt_type,
                                      len, (uint64_t)data_ptr, ret);

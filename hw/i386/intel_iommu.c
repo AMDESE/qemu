@@ -2634,7 +2634,7 @@ static void vtd_init_fl_hwpt_data(struct iommu_hwpt_vtd_s1 *vtd,
 static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
                            uint32_t *s2_hwptid)
 {
-    struct iommu_resv_iova_range *resv;
+//    struct iommu_resv_iova_range *resv;
     int ret;
     uint32_t ioas_id;
     IOMMUFDBackend *iommufd = idev->iommufd;
@@ -2672,9 +2672,9 @@ static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
     }
 
     /* This is for test, does not have real point so far */
-    iommufd_device_get_resv_iova(idev, &resv);
-    printf("%s resv->start: %llx, last: %llx\n", __func__, resv->start, resv->last);
-    g_free(resv);
+//    iommufd_device_get_resv_iova(idev, &resv);
+//    printf("%s resv->start: %llx, last: %llx\n", __func__, resv->start, resv->last);
+//    g_free(resv);
 
     return ret;
 }
