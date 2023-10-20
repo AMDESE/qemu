@@ -302,7 +302,7 @@ static int vfio_device_attach_container(VFIODevice *vbasedev,
 
     ret = iommufd_backend_alloc_hwpt(iommufd, vbasedev->devid,
                                      container->ioas_id, 0,
-                                     IOMMU_HWPT_TYPE_DEFAULT,
+                                     IOMMU_HWPT_DATA_NONE,
                                      0, NULL, &hwpt_id);
 
     if (ret) {

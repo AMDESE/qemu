@@ -2723,7 +2723,7 @@ static int vtd_get_s2_hwpt(IntelIOMMUState *s, IOMMUFDDevice *idev,
 
     ret = iommufd_backend_alloc_hwpt(iommufd->fd, idev->dev_id,
                                      ioas_id, IOMMU_HWPT_ALLOC_NEST_PARENT,
-				     IOMMU_HWPT_TYPE_DEFAULT,
+				     IOMMU_HWPT_DATA_NONE,
                                      0, NULL, s2_hwptid);
     if (!ret) {
         memory_listener_register(&iommufd->listener, &address_space_memory);
@@ -2778,7 +2778,7 @@ static int vtd_init_fl_hwpt(IntelIOMMUState *s, VTDHwpt *hwpt,
     }
 
     ret = iommufd_backend_alloc_hwpt(idev->iommufd->fd, idev->dev_id,
-                                     s2_hwptid, 0, IOMMU_HWPT_TYPE_VTD_S1,
+                                     s2_hwptid, 0, IOMMU_HWPT_DATA_VTD_S1,
                                      sizeof(vtd), &vtd, &hwpt_id);
     if (ret) {
         vtd_put_s2_hwpt(idev);
@@ -4137,7 +4137,8 @@ static void vtd_invalidate_piotlb(VTDPASIDAddressSpace *vtd_pasid_as,
         goto out;
     }
     if (iommufd_backend_invalidate_cache(hwpt->iommufd, hwpt->hwpt_id,
-                                         sizeof(*cache), 1, cache)) {
+                                         IOMMU_HWPT_DATA_VTD_S1, sizeof(*cache),
+                                         1, cache)) {
         error_report("Cache flush failed");
     }
 out:
@@ -4242,7 +4243,7 @@ static void vtd_piotlb_page_invalidate(IntelIOMMUState *s, uint16_t domain_id,
 
     cache_info.addr = addr;
     cache_info.npages = 1 << am;
-    cache_info.flags = ih ? IOMMU_VTD_QI_FLAGS_LEAF : 0;
+    cache_info.flags = ih ? IOMMU_VTD_INV_FLAGS_LEAF : 0;
 
     piotlb_info.domain_id = domain_id;
     piotlb_info.pasid = pasid;

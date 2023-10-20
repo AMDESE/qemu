@@ -48,8 +48,8 @@ enum {
 	IOMMUFD_CMD_HWPT_ALLOC,
 	IOMMUFD_CMD_GET_HW_INFO,
 	IOMMUFD_CMD_HWPT_INVALIDATE,
-	IOMMUFD_CMD_SET_DEV_DATA,
-	IOMMUFD_CMD_UNSET_DEV_DATA,
+	IOMMUFD_CMD_SET_IDEV_DATA,
+	IOMMUFD_CMD_UNSET_IDEV_DATA,
 };
 
 /**
@@ -351,46 +351,8 @@ struct iommu_vfio_ioas {
 #define IOMMU_VFIO_IOAS _IO(IOMMUFD_TYPE, IOMMUFD_CMD_VFIO_IOAS)
 
 /**
- * enum iommufd_hwpt_alloc_flags - Flags for HWPT allocation
- * @IOMMU_HWPT_ALLOC_NEST_PARENT: If set, allocate a domain which can serve
- *                                as the parent domain in the nesting
- *                                configuration.
- */
-enum iommufd_hwpt_alloc_flags {
-	IOMMU_HWPT_ALLOC_NEST_PARENT = 1 << 0,
-};
-
-/**
- * enum iommu_hwpt_vtd_s1_flags - Intel VT-d stage-1 page table
- *                                entry attributes
- * @IOMMU_VTD_S1_SRE: Supervisor request
- * @IOMMU_VTD_S1_EAFE: Extended access enable
- * @IOMMU_VTD_S1_WPE: Write protect enable
- */
-enum iommu_hwpt_vtd_s1_flags {
-	IOMMU_VTD_S1_SRE = 1 << 0,
-	IOMMU_VTD_S1_EAFE = 1 << 1,
-	IOMMU_VTD_S1_WPE = 1 << 2,
-};
-
-/**
- * struct iommu_hwpt_vtd_s1 - Intel VT-d stage-1 page table
- *                            info (IOMMU_HWPT_TYPE_VTD_S1)
- * @flags: Combination of enum iommu_hwpt_vtd_s1_flags
- * @pgtbl_addr: The base address of the stage-1 page table.
- * @addr_width: The address width of the stage-1 page table
- * @__reserved: Must be 0
- */
-struct iommu_hwpt_vtd_s1 {
-	__aligned_u64 flags;
-	__aligned_u64 pgtbl_addr;
-	__u32 addr_width;
-	__u32 __reserved;
-};
-
-/**
  * struct iommu_hwpt_arm_smmuv3 - ARM SMMUv3 specific translation table info
- *                                (IOMMU_HWPT_TYPE_ARM_SMMUV3)
+ *                                (IOMMU_HWPT_DATA_ARM_SMMUV3)
  *
  * @flags: Translation table entry attributes
  * @ste_len: Length of the user Stream Table Entry
@@ -415,7 +377,7 @@ struct iommu_hwpt_vtd_s1 {
  * case only this flag matters and the kernel will ignore all other inputs.
  */
 struct iommu_hwpt_arm_smmuv3 {
-#define IOMMU_SMMUV3_FLAG_S2	(1 << 0) /* if unset, stage-1 */
+#define IOMMU_SMMUV3_FLAG_S2   (1 << 0) /* if unset, stage-1 */
 	__aligned_u64 flags;
 	__aligned_u64 ste_len;
 	__aligned_u64 ste_uptr;
@@ -424,15 +386,52 @@ struct iommu_hwpt_arm_smmuv3 {
 };
 
 /**
- * enum iommu_hwpt_type - IOMMU HWPT Type
- * @IOMMU_HWPT_TYPE_DEFAULT: default
- * @IOMMU_HWPT_TYPE_VTD_S1: Intel VT-d stage-1 page table
- * @IOMMU_HWPT_TYPE_ARM_SMMUV3: ARM SMMUv3 Translation table
+ * enum iommufd_hwpt_alloc_flags - Flags for HWPT allocation
+ * @IOMMU_HWPT_ALLOC_NEST_PARENT: If set, allocate a HWPT that can serve as
+ *                                the parent HWPT in a nesting configuration.
  */
-enum iommu_hwpt_type {
-	IOMMU_HWPT_TYPE_DEFAULT,
-	IOMMU_HWPT_TYPE_VTD_S1,
-	IOMMU_HWPT_TYPE_ARM_SMMUV3,
+enum iommufd_hwpt_alloc_flags {
+	IOMMU_HWPT_ALLOC_NEST_PARENT = 1 << 0,
+};
+
+/**
+ * enum iommu_hwpt_vtd_s1_flags - Intel VT-d stage-1 page table
+ *                                entry attributes
+ * @IOMMU_VTD_S1_SRE: Supervisor request
+ * @IOMMU_VTD_S1_EAFE: Extended access enable
+ * @IOMMU_VTD_S1_WPE: Write protect enable
+ */
+enum iommu_hwpt_vtd_s1_flags {
+	IOMMU_VTD_S1_SRE = 1 << 0,
+	IOMMU_VTD_S1_EAFE = 1 << 1,
+	IOMMU_VTD_S1_WPE = 1 << 2,
+};
+
+/**
+ * struct iommu_hwpt_vtd_s1 - Intel VT-d stage-1 page table
+ *                            info (IOMMU_HWPT_DATA_VTD_S1)
+ * @flags: Combination of enum iommu_hwpt_vtd_s1_flags
+ * @pgtbl_addr: The base address of the stage-1 page table.
+ * @addr_width: The address width of the stage-1 page table
+ * @__reserved: Must be 0
+ */
+struct iommu_hwpt_vtd_s1 {
+	__aligned_u64 flags;
+	__aligned_u64 pgtbl_addr;
+	__u32 addr_width;
+	__u32 __reserved;
+};
+
+/**
+ * enum iommu_hwpt_data_type - IOMMU HWPT Data Type
+ * @IOMMU_HWPT_DATA_NONE: no data
+ * @IOMMU_HWPT_DATA_VTD_S1: Intel VT-d stage-1 page table
+ * @IOMMU_HWPT_DATA_ARM_SMMUV3: ARM SMMUv3 Context Descriptor Table
+ */
+enum iommu_hwpt_data_type {
+	IOMMU_HWPT_DATA_NONE,
+	IOMMU_HWPT_DATA_VTD_S1,
+	IOMMU_HWPT_DATA_ARM_SMMUV3,
 };
 
 /**
@@ -443,7 +442,7 @@ enum iommu_hwpt_type {
  * @pt_id: The IOAS or HWPT to connect this HWPT to
  * @out_hwpt_id: The ID of the new HWPT
  * @__reserved: Must be 0
- * @hwpt_type: One of enum iommu_hwpt_type
+ * @data_type: One of enum iommu_hwpt_data_type
  * @data_len: Length of the type specific data
  * @data_uptr: User pointer to the type specific data
  *
@@ -452,17 +451,17 @@ enum iommu_hwpt_type {
  * underlying iommu driver's iommu_domain kernel object.
  *
  * A kernel-managed HWPT will be created with the mappings from the given
- * IOAS via the @pt_id. The @hwpt_type for this allocation can be set to
- * either IOMMU_HWPT_TYPE_DEFAULT or a pre-defined type corresponding to
- * an I/O page table type supported by the underlying IOMMU hardware.
+ * IOAS via the @pt_id. The @data_type for this allocation must be set to
+ * IOMMU_HWPT_DATA_NONE. The HWPT can be allocated as a parent HWPT for a
+ * nesting configuration by passing IOMMU_HWPT_ALLOC_NEST_PARENT via @flags.
  *
- * A user-managed HWPT will be created from a given parent HWPT via the
+ * A user-managed nested HWPT will be created from a given parent HWPT via
  * @pt_id, in which the parent HWPT must be allocated previously via the
- * same ioctl from a given IOAS (@pt_id). In this case, the @hwpt_type
+ * same ioctl from a given IOAS (@pt_id). In this case, the @data_type
  * must be set to a pre-defined type corresponding to an I/O page table
  * type supported by the underlying IOMMU hardware.
  *
- * If the @hwpt_type is set to IOMMU_HWPT_TYPE_DEFAULT, @data_len and
+ * If the @data_type is set to IOMMU_HWPT_DATA_NONE, @data_len and
  * @data_uptr should be zero. Otherwise, both @data_len and @data_uptr
  * must be given.
  */
@@ -473,7 +472,7 @@ struct iommu_hwpt_alloc {
 	__u32 pt_id;
 	__u32 out_hwpt_id;
 	__u32 __reserved;
-	__u32 hwpt_type;
+	__u32 data_type;
 	__u32 data_len;
 	__aligned_u64 data_uptr;
 };
@@ -589,29 +588,31 @@ struct iommu_hw_info {
 /**
  * enum iommu_hwpt_vtd_s1_invalidate_flags - Flags for Intel VT-d
  *                                           stage-1 cache invalidation
- * @IOMMU_VTD_QI_FLAGS_LEAF: The LEAF flag indicates whether only the
- *                           leaf PTE caching needs to be invalidated
- *                           and other paging structure caches can be
- *                           preserved.
+ * @IOMMU_VTD_INV_FLAGS_LEAF: The LEAF flag indicates whether only the
+ *                            leaf PTE caching needs to be invalidated
+ *                            and other paging structure caches can be
+ *                            preserved.
  */
 enum iommu_hwpt_vtd_s1_invalidate_flags {
-	IOMMU_VTD_QI_FLAGS_LEAF = 1 << 0,
+	IOMMU_VTD_INV_FLAGS_LEAF = 1 << 0,
 };
 
 /**
  * struct iommu_hwpt_vtd_s1_invalidate - Intel VT-d cache invalidation
- *                                       (IOMMU_HWPT_TYPE_VTD_S1)
- * @addr: The start address of the addresses to be invalidated.
+ *                                       (IOMMU_HWPT_DATA_VTD_S1)
+ * @addr: The start address of the addresses to be invalidated. It needs
+ *        to be 4KB aligned.
  * @npages: Number of contiguous 4K pages to be invalidated.
  * @flags: Combination of enum iommu_hwpt_vtd_s1_invalidate_flags
  * @__reserved: Must be 0
  *
  * The Intel VT-d specific invalidation data for user-managed stage-1 cache
- * invalidation under nested translation. Userspace uses this structure to
- * tell host about the impacted caches after modifying the stage-1 page table.
+ * invalidation in nested translation. Userspace uses this structure to
+ * tell the impacted cache scope after modifying the stage-1 page table.
  *
  * Invalidating all the caches related to the page table by setting @addr
- * to be 0 and @npages to be __aligned_u64(-1).
+ * to be 0 and @npages to be __aligned_u64(-1). This includes the
+ * corresponding device-TLB if ATS is enabled on the attached devices.
  */
 struct iommu_hwpt_vtd_s1_invalidate {
 	__aligned_u64 addr;
@@ -622,7 +623,7 @@ struct iommu_hwpt_vtd_s1_invalidate {
 
 /**
  * struct iommu_hwpt_arm_smmuv3_invalidate - ARM SMMUv3 cahce invalidation
- *                                           (IOMMU_HWPT_TYPE_ARM_SMMUV3)
+ *                                           (IOMMU_HWPT_DATA_ARM_SMMUV3)
  * @cmd: 128-bit cache invalidation command that runs in SMMU CMDQ
  *
  * Supported command list:
@@ -642,15 +643,21 @@ struct iommu_hwpt_arm_smmuv3_invalidate {
 /**
  * struct iommu_hwpt_invalidate - ioctl(IOMMU_HWPT_INVALIDATE)
  * @size: sizeof(struct iommu_hwpt_invalidate)
- * @hwpt_id: HWPT ID of target hardware page table for cache invalidation
+ * @hwpt_id: HWPT ID of a nested HWPT for cache invalidation
  * @reqs_uptr: User pointer to an array having @req_num of cache invalidation
  *             requests. The request entries in the array are of fixed width
  *             @req_len, and contain a user data structure for invalidation
  *             request specific to the given hardware page table.
+ * @req_type: One of enum iommu_hwpt_data_type, defining the data type of all
+ *            the entries in the invalidation request array. It should suit
+ *            with the data_type passed per the allocation of the hwpt pointed
+ *            by @hwpt_id.
  * @req_len: Length (in bytes) of a request entry in the request array
  * @req_num: Input the number of cache invalidation requests in the array.
  *           Output the number of requests successfully handled by kernel.
- * @out_driver_error_code: Report a driver speicifc error code upon failure
+ * @out_driver_error_code: Report a driver speicifc error code upon failure.
+ *                         It's optional, driver has a choice to fill it or
+ *                         not.
  *
  * Invalidate the iommu cache for user-managed page table. Modifications on a
  * user-managed page table should be followed by this operation to sync cache.
@@ -661,6 +668,7 @@ struct iommu_hwpt_invalidate {
 	__u32 size;
 	__u32 hwpt_id;
 	__aligned_u64 reqs_uptr;
+	__u32 req_type;
 	__u32 req_len;
 	__u32 req_num;
 	__u32 out_driver_error_code;
@@ -668,44 +676,55 @@ struct iommu_hwpt_invalidate {
 #define IOMMU_HWPT_INVALIDATE _IO(IOMMUFD_TYPE, IOMMUFD_CMD_HWPT_INVALIDATE)
 
 /**
- * struct iommu_dev_data_arm_smmuv3 - ARM SMMUv3 specific device data
+ * enum iommu_idev_data_type - Data Type for a Device behind an IOMMU
+ * @IOMMU_IDEV_DATA_NONE: no data
+ */
+enum iommu_idev_data_type {
+	IOMMU_IDEV_DATA_NONE,
+	IOMMU_IDEV_DATA_ARM_SMMUV3,
+};
+
+/**
+ * struct iommu_idev_data_arm_smmuv3 - ARM SMMUv3 specific device data
  * @sid: The Stream ID that is assigned in the user space
  *
  * The SMMUv3 specific user space data for a device that is behind an SMMU HW.
  * The guest-level user data should be linked to the host-level kernel data,
  * which will be used by user space cache invalidation commands.
  */
-struct iommu_dev_data_arm_smmuv3 {
+struct iommu_idev_data_arm_smmuv3 {
 	__u32 sid;
 };
 
 /**
- * struct iommu_set_dev_data - ioctl(IOMMU_SET_DEV_DATA)
- * @size: sizeof(struct iommu_set_dev_data)
+ * struct iommu_set_idev_data - ioctl(IOMMU_SET_IDEV_DATA)
+ * @size: sizeof(struct iommu_set_idev_data)
  * @dev_id: The device to set an iommu specific device data
  * @data_uptr: User pointer of the device user data
+ * @data_type: One of enum iommu_idev_data_type
  * @data_len: Length of the device user data
  *
- * The device data must be unset using ioctl(IOMMU_UNSET_DEV_DATA), before
- * another ioctl(IOMMU_SET_DEV_DATA) call or before the device itself gets
+ * The device data must be unset using ioctl(IOMMU_UNSET_IDEV_DATA), before
+ * another ioctl(IOMMU_SET_IDEV_DATA) call or before the device itself gets
  * unbind'd from the iommufd context.
  */
-struct iommu_set_dev_data {
+struct iommu_set_idev_data {
 	__u32 size;
 	__u32 dev_id;
 	__aligned_u64 data_uptr;
+	__u32 data_type;
 	__u32 data_len;
 };
-#define IOMMU_SET_DEV_DATA _IO(IOMMUFD_TYPE, IOMMUFD_CMD_SET_DEV_DATA)
+#define IOMMU_SET_IDEV_DATA _IO(IOMMUFD_TYPE, IOMMUFD_CMD_SET_IDEV_DATA)
 
 /**
- * struct iommu_unset_dev_data - ioctl(IOMMU_UNSET_DEV_DATA)
- * @size: sizeof(struct iommu_unset_dev_data)
+ * struct iommu_unset_idev_data - ioctl(IOMMU_UNSET_IDEV_DATA)
+ * @size: sizeof(struct iommu_unset_idev_data)
  * @dev_id: The device to unset its device user data
  */
-struct iommu_unset_dev_data {
+struct iommu_unset_idev_data {
 	__u32 size;
 	__u32 dev_id;
 };
-#define IOMMU_UNSET_DEV_DATA _IO(IOMMUFD_TYPE, IOMMUFD_CMD_UNSET_DEV_DATA)
+#define IOMMU_UNSET_IDEV_DATA _IO(IOMMUFD_TYPE, IOMMUFD_CMD_UNSET_IDEV_DATA)
 #endif
