@@ -311,6 +311,36 @@ bool iommufd_backend_get_device_info(IOMMUFDBackend *be, uint32_t devid,
     return true;
 }
 
+int iommufd_backend_invalidate_cache(IOMMUFDBackend *be, uint32_t hwpt_id,
+                                     uint32_t data_type, uint32_t entry_len,
+                                     uint32_t *entry_num, void *data_ptr)
+{
+    int ret, fd = be->fd;
+    struct iommu_hwpt_invalidate cache = {
+        .size = sizeof(cache),
+        .hwpt_id = hwpt_id,
+        .data_type = data_type,
+        .entry_len = entry_len,
+        .entry_num = *entry_num,
+        .data_uptr = (uintptr_t)data_ptr,
+    };
+
+    ret = ioctl(fd, IOMMU_HWPT_INVALIDATE, &cache);
+
+    trace_iommufd_backend_invalidate_cache(fd, hwpt_id, data_type, entry_len,
+                                           *entry_num, cache.entry_num,
+                                           (uintptr_t)data_ptr, ret);
+    if (ret) {
+        *entry_num = cache.entry_num;
+        error_report("IOMMU_HWPT_INVALIDATE failed: %s", strerror(errno));
+        ret = -errno;
+    } else {
+        g_assert(*entry_num == cache.entry_num);
+    }
+
+    return ret;
+}
+
 static int hiod_iommufd_get_cap(HostIOMMUDevice *hiod, int cap, Error **errp)
 {
     HostIOMMUDeviceCaps *caps = &hiod->caps;
