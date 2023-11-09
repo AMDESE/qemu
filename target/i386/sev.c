@@ -2263,16 +2263,64 @@ static int kvm_handle_vmgexit_msr_protocol(__u64 *ghcb_msr)
     return 0;
 }
 
-int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
+static int next_contig_gpa_range(struct snp_psc_desc *desc,
+                                 uint16_t *entries_processed, hwaddr *gfn_base,
+                                 int *gfn_count, bool *range_to_private)
+{
+    int i;
+
+    *entries_processed = 0;
+    *gfn_base = 0;
+    *gfn_count = 0;
+    *range_to_private = false;
+
+    for (i = desc->hdr.cur_entry; i <= desc->hdr.end_entry; i++) {
+        struct psc_entry *entry = &desc->entries[i];
+        bool to_private = entry->operation == 1;
+        int page_count = entry->pagesize ? 512 : 1;
+
+        if (!*gfn_count) {
+            *range_to_private = to_private;
+            *gfn_base = entry->gfn;
+        }
+
+        /* When first non-adjacent entry is encountered, report back the previous range */
+        if (entry->gfn != *gfn_base + *gfn_count || (to_private != *range_to_private)) {
+            return 0;
+        }
+
+#if 0
+        trace_kvm_vmgexit_psc(entry->gfn, entry->pagesize ? 0x200000 : 0x1000,
+                              entry->cur_page, entry->operation, to_private);
+#endif
+
+        *gfn_count += page_count;
+
+        /*
+         * TODO: this should only be changed after success, but is a bit painful
+         * handling this in conjunction with batching up multiple entries, so
+         * just assume success for now. Guests don't currently seem to make use
+         * of this sort of per-page error handling anyway.
+         */
+        entry->cur_page = page_count;
+        *entries_processed += 1;
+    }
+
+    return *gfn_count ? 0 : -ENOENT;
+}
+
+int kvm_handle_vmgexit(__u64 *ghcb_msr, __u64 *psc_ret)
 {
     struct ghcb *ghcb;
     hwaddr len = sizeof(struct ghcb);
     MemTxAttrs attrs = { 0 };
     struct snp_psc_desc *desc;
-    uint16_t cur_entry;
-    int i;
     uint8_t shared_buf[GHCB_SHARED_BUF_SIZE];
     uint64_t ghcb_addr = *ghcb_msr;
+    uint16_t entries_processed;
+    hwaddr gfn_base = 0;
+    int gfn_count = 0;
+    bool range_to_private;
 
     if (*ghcb_msr & GHCB_MSR_INFO_MASK) {
         return kvm_handle_vmgexit_msr_protocol(ghcb_msr);
@@ -2285,21 +2333,17 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
     address_space_unmap(&address_space_memory, ghcb, len, true, len);
 
     desc = (struct snp_psc_desc *)shared_buf;
-    cur_entry = desc->hdr.cur_entry;
 
-    for (i = cur_entry; i <= desc->hdr.end_entry; i++) {
-        struct psc_entry *entry = &desc->entries[i];
-        bool private;
-        int ret;
-
-        private = entry->operation == 1;
-        ret = kvm_convert_memory(entry->gfn * 0x1000, entry->pagesize ? 0x200000 : 0x1000,
-                                 private);
+    while (!next_contig_gpa_range(desc, &entries_processed,
+                                  &gfn_base, &gfn_count, &range_to_private)) {
+        int ret = kvm_convert_memory(gfn_base * 0x1000, gfn_count * 0x1000,
+                                     range_to_private);
         if (ret) {
             g_warning("error doing memory conversion: %d", ret);
             goto out;
         }
-        desc->hdr.cur_entry++;
+
+        desc->hdr.cur_entry += entries_processed;
     }
 
     /* TODO: what happens if ghcb tries to convert itself? */
@@ -2309,7 +2353,7 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error)
     address_space_unmap(&address_space_memory, ghcb, len, true, len);
 
 out:
-    *error = 0;
+    *psc_ret = 0;
     return 0;
 }
 

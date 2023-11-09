@@ -67,6 +67,6 @@ int sev_es_save_reset_vector(void *flash_ptr, uint64_t flash_size);
 void sev_es_set_reset_vector(CPUState *cpu);
 
 int sev_kvm_init(MachineState *ms, Error **errp);
-int kvm_handle_vmgexit(__u64 *ghcb_msr, uint8_t *error);
+int kvm_handle_vmgexit(__u64 *ghcb_msr, __u64 *psc_ret);
 
 #endif
