@@ -513,7 +513,7 @@ static int kvm_mem_flags(MemoryRegion *mr)
         flags |= KVM_MEM_READONLY;
     }
     if (memory_region_has_guest_memfd(mr)) {
-        flags |= KVM_MEM_PRIVATE;
+        flags |= KVM_MEM_GUEST_MEMFD;
     }
     return flags;
 }
