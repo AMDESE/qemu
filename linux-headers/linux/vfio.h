@@ -1516,8 +1516,11 @@ struct vfio_device_feature_bus_master {
  * Upon VFIO_DEVICE_FEATURE_GET, get the PASID capability for the device.
  */
 struct vfio_device_feature_pasid {
-	__u32 header;
-	__u32 cap_ctrl;
+	__u16 capabilities;
+#define VFIO_DEVICE_PASID_CAP_EXEC	(1 << 0)
+#define VFIO_DEVICE_PASID_CAP_PRIV	(1 << 1)
+	__u8 width;
+	__u8 __reserved;
 };
 #define VFIO_DEVICE_FEATURE_PASID 11
 

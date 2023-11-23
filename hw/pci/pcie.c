@@ -1113,3 +1113,15 @@ void pcie_acs_reset(PCIDevice *dev)
         pci_set_word(dev->config + dev->exp.acs_cap + PCI_ACS_CTRL, 0);
     }
 }
+
+void pcie_pasid_init(PCIDevice *dev, uint16_t offset, uint16_t caps)
+{
+    pcie_add_capability(dev, PCI_EXT_CAP_ID_PASID, 1,
+                        offset, PCI_EXT_CAP_PASID_SIZEOF);
+
+    dev->exp.pasid_cap = offset;
+
+    pci_set_word(dev->config + offset + PCI_PASID_CAP, caps);
+
+    pci_set_word(dev->wmask + dev->exp.pasid_cap + PCI_PASID_CTRL, 0x7);
+}

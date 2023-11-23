@@ -2282,6 +2282,45 @@ static void vfio_add_ext_cap(VFIOPCIDevice *vdev)
 
     }
 
+    {
+        struct vfio_device_feature_pasid *pasid_cap;
+        struct vfio_device_feature *feature;
+
+        feature = g_malloc0(sizeof(*feature) + sizeof(struct vfio_device_feature_pasid));
+        if (!feature)
+            goto next;
+
+        feature->argsz = sizeof(*feature) + sizeof(struct vfio_device_feature_pasid);
+        feature->flags = VFIO_DEVICE_FEATURE_PASID | VFIO_DEVICE_FEATURE_GET;
+        pasid_cap = (struct vfio_device_feature_pasid *)&feature->data;
+
+        /*
+         * TODO: Add option for enabling pasid at a safe offset, this adds the
+         * pasid capability in the end of the PCIE config space.
+	  */
+        if (!ioctl(vdev->vbasedev.fd, VFIO_DEVICE_FEATURE, feature)) {
+            uint16_t caps = 0;
+
+            if (pasid_cap->capabilities & VFIO_DEVICE_PASID_CAP_EXEC) {
+                caps |= PCI_PASID_CAP_EXEC;
+            }
+
+            if (pasid_cap->capabilities & VFIO_DEVICE_PASID_CAP_PRIV) {
+                caps |= PCI_PASID_CAP_PRIV;
+            }
+
+            caps |= (pasid_cap->width << 8) & 0x1f00;
+
+            pcie_pasid_init(pdev,
+                            PCIE_CONFIG_SPACE_SIZE - PCI_EXT_CAP_PASID_SIZEOF,
+                            caps);
+            /* PASID capability is fully emulated by QEMU */
+            memset(vdev->emulated_config_bits + pdev->exp.pasid_cap, 0xff, 8);
+        }
+        g_free(feature);
+    }
+
+next:
     /* Cleanup chain head ID if necessary */
     if (pci_get_word(pdev->config + PCI_CONFIG_SPACE_SIZE) == 0xFFFF) {
         pci_set_word(pdev->config + PCI_CONFIG_SPACE_SIZE, 0);

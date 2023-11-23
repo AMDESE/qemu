@@ -79,6 +79,9 @@ struct PCIExpressDevice {
     uint16_t sriov_cap;
     PCIESriovPF sriov_pf;
     PCIESriovVF sriov_vf;
+
+    /* Offset of PASID capability in config space */
+    uint16_t pasid_cap;
 };
 
 #define COMPAT_PROP_PCP "power_controller_present"
@@ -147,4 +150,5 @@ void pcie_cap_slot_unplug_cb(HotplugHandler *hotplug_dev, DeviceState *dev,
                              Error **errp);
 void pcie_cap_slot_unplug_request_cb(HotplugHandler *hotplug_dev,
                                      DeviceState *dev, Error **errp);
+void pcie_pasid_init(PCIDevice *dev, uint16_t offset, uint16_t caps);
 #endif /* QEMU_PCIE_H */
