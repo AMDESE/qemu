@@ -1513,7 +1513,8 @@ struct vfio_device_feature_bus_master {
 #define VFIO_DEVICE_FEATURE_BUS_MASTER 10
 
 /**
- * Upon VFIO_DEVICE_FEATURE_GET, get the PASID capability for the device.
+ * Upon VFIO_DEVICE_FEATURE_GET, return the PASID capability for the device.
+ * Zero width means no support for PASID.
  */
 struct vfio_device_feature_pasid {
 	__u16 capabilities;

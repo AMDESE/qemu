@@ -2825,6 +2825,8 @@ static int vtd_dev_get_rid2pasid(IntelIOMMUState *s, uint8_t bus_num,
     return ret;
 }
 
+static int pasid_300_attached = 0;
+
 static int vtd_device_attach_pgtbl(VTDIOMMUFDDevice *vtd_idev,
                                    VTDPASIDEntry *pe,
                                    VTDPASIDAddressSpace *vtd_pasid_as,
@@ -2873,6 +2875,18 @@ static int vtd_device_attach_pgtbl(VTDIOMMUFDDevice *vtd_idev,
             vtd_put_s2_hwpt(idev);
         }
     }
+
+    /* FIXME: for testing, attach the hwpt to pasid #300 as well */
+    if (iommufd_device_pasid_attach_hwpt(idev, 300, hwpt->parent_id)) {
+        printf("%s, try to attach PASID %u failed\n", __func__, 300);
+    } else {
+        if (iommufd_device_pasid_attach_hwpt(idev, 300, hwpt->hwpt_id)) {
+            printf("%s, try to attach PASID %u failed\n", __func__, 300);
+        } else {
+            printf("%s, try to attach PASID %u succ\n", __func__, 300);
+        }
+        pasid_300_attached = 1;
+    }
     return ret;
 }
 
@@ -2910,6 +2924,12 @@ static int vtd_device_detach_pgtbl(IOMMUFDDevice *idev,
             vtd_put_s2_hwpt(idev);
         }
     }
+
+    /* FIXME: for testing, detach the hwpt from pasid #300 as well */
+    if (pasid_300_attached && iommufd_device_pasid_detach_hwpt(idev, 300))
+            printf("%s, try to detach PASID %u failed\n", __func__, 300);
+    pasid_300_attached = 0;
+
     return ret;
 }
 
