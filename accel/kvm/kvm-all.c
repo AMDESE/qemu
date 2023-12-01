@@ -3125,6 +3125,8 @@ int kvm_cpu_exec(CPUState *cpu)
             }
             break;
         case KVM_EXIT_MEMORY_FAULT:
+            g_warning("memory fault: GPA 0x%llx size 0x%llx flags 0x%llx",
+                      run->memory_fault.gpa, run->memory_fault.size, run->memory_fault.flags);
             if (run->memory_fault.flags & ~KVM_MEMORY_EXIT_FLAG_PRIVATE) {
                 error_report("KVM_EXIT_MEMORY_FAULT: Unknown flag 0x%" PRIx64,
                              (uint64_t)run->memory_fault.flags);
