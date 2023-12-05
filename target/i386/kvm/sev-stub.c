@@ -14,7 +14,7 @@
 #include "qemu/osdep.h"
 #include "sev.h"
 
-int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+int sev_kvm_init(MachineState *ms, Error **errp)
 {
     /* If we get here, cgs must be some non-SEV thing */
     return 0;

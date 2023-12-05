@@ -1630,8 +1630,9 @@ sev_vm_state_change(void *opaque, bool running, RunState state)
     }
 }
 
-int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
+int sev_kvm_init(MachineState *ms, Error **errp)
 {
+    ConfidentialGuestSupport *cgs = ms->cgs;
     SevCommonState *sev_common = SEV_COMMON(cgs);
     char *devname;
     int ret, fw_error, cmd;
@@ -1711,6 +1712,7 @@ int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         cmd = KVM_SEV_SNP_INIT;
         init_args = (void *)&sev_snp_guest->kvm_init_conf;
         trace_kvm_sev_init("SEV-SNP", sev_snp_guest->kvm_init_conf.flags);
+        ms->require_guest_memfd = true;
     } else if (sev_es_enabled()) {
         if (!kvm_kernel_irqchip_allowed()) {
             error_report("%s: SEV-ES guests require in-kernel irqchip support",
