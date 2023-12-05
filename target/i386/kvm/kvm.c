@@ -164,11 +164,16 @@ static int kvm_get_one_msr(X86CPU *cpu, int index, uint64_t *value);
 static const char* vm_type_name[] = {
     [KVM_X86_DEFAULT_VM] = "default",
     [KVM_X86_SW_PROTECTED_VM] = "sw-protected-vm",
+    [KVM_X86_SNP_VM] = "snp"
 };
 
 int kvm_get_vm_type(MachineState *ms, const char *vm_type)
 {
     int kvm_type = KVM_X86_DEFAULT_VM;
+
+    if (ms->cgs && object_dynamic_cast(OBJECT(ms->cgs), TYPE_SEV_SNP_GUEST)) {
+        kvm_type = KVM_X86_SNP_VM;
+    }
 
     /*
      * old KVM doesn't support KVM_CAP_VM_TYPES and KVM_X86_DEFAULT_VM
