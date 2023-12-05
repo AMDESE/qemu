@@ -34,6 +34,7 @@
 #include "hw/boards.h"
 #include "migration/vmstate.h"
 #include "exec/address-spaces.h"
+#include "qemu/memfd.h"
 
 //#define DEBUG_UNASSIGNED
 
@@ -1730,6 +1731,60 @@ void memory_region_init_rom_device_nomigrate(MemoryRegion *mr,
         object_unparent(OBJECT(mr));
         error_propagate(errp, err);
     }
+}
+
+static void
+memory_region_init_rom_device_nomigrate_private(MemoryRegion *mr,
+                                                Object *owner,
+                                                const MemoryRegionOps *ops,
+                                                void *opaque,
+                                                const char *name,
+                                                uint64_t size,
+                                                Error **errp)
+{
+    Error *err = NULL;
+    assert(ops);
+    memory_region_init(mr, owner, name, size);
+    mr->ops = ops;
+    mr->opaque = opaque;
+    mr->terminates = true;
+    mr->rom_device = true;
+    mr->destructor = memory_region_destructor_ram;
+    mr->ram_block = qemu_ram_alloc(size, RAM_GUEST_MEMFD, mr, &err);
+    if (err) {
+        mr->size = int128_zero();
+        object_unparent(OBJECT(mr));
+        error_propagate(errp, err);
+    }
+}
+
+void memory_region_init_rom_device_private(MemoryRegion *mr,
+                                           Object *owner,
+                                           const MemoryRegionOps *ops,
+                                           void *opaque,
+                                           const char *name,
+                                           uint64_t size,
+                                           Error **errp)
+{
+    DeviceState *owner_dev;
+    Error *err = NULL;
+
+    g_warning("creating ROM device with private memory.");
+
+    memory_region_init_rom_device_nomigrate_private(mr, owner, ops, opaque,
+                                                    name, size, &err);
+    if (err) {
+        error_propagate(errp, err);
+        return;
+    }
+    /* This will assert if owner is neither NULL nor a DeviceState.
+     * We only want the owner here for the purposes of defining a
+     * unique name for migration. TODO: Ideally we should implement
+     * a naming scheme for Objects which are not DeviceStates, in
+     * which case we can relax this restriction.
+     */
+    owner_dev = DEVICE(owner);
+    vmstate_register_ram(mr, owner_dev);
 }
 
 void memory_region_init_iommu(void *_iommu_mr,

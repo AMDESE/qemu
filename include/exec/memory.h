@@ -1655,6 +1655,13 @@ void memory_region_init_rom_device(MemoryRegion *mr,
                                    uint64_t size,
                                    Error **errp);
 
+void memory_region_init_rom_device_private(MemoryRegion *mr,
+                                           Object *owner,
+                                           const MemoryRegionOps *ops,
+                                           void *opaque,
+                                           const char *name,
+                                           uint64_t size,
+                                           Error **errp);
 
 /**
  * memory_region_owner: get a memory region's owner.
