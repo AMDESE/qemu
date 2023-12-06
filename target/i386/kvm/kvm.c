@@ -2543,7 +2543,7 @@ int kvm_arch_get_default_type(MachineState *ms)
 
 static int kvm_confidential_guest_init(MachineState *ms, Error **errp)
 {
-    if (object_dynamic_cast(OBJECT(ms->cgs), TYPE_SEV_GUEST)) {
+    if (object_dynamic_cast(OBJECT(ms->cgs), TYPE_SEV_COMMON)) {
         return sev_kvm_init(ms, errp);
     }
 
