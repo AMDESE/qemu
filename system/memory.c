@@ -1725,32 +1725,11 @@ void memory_region_init_rom_device_nomigrate(MemoryRegion *mr,
     mr->terminates = true;
     mr->rom_device = true;
     mr->destructor = memory_region_destructor_ram;
-    mr->ram_block = qemu_ram_alloc(size, 0, mr, &err);
-    if (err) {
-        mr->size = int128_zero();
-        object_unparent(OBJECT(mr));
-        error_propagate(errp, err);
+    if (kvm_has_restricted_memory()) {
+        mr->ram_block = qemu_ram_alloc(size, RAM_GUEST_MEMFD, mr, &err);
+    } else {
+        mr->ram_block = qemu_ram_alloc(size, 0, mr, &err);
     }
-}
-
-static void
-memory_region_init_rom_device_nomigrate_private(MemoryRegion *mr,
-                                                Object *owner,
-                                                const MemoryRegionOps *ops,
-                                                void *opaque,
-                                                const char *name,
-                                                uint64_t size,
-                                                Error **errp)
-{
-    Error *err = NULL;
-    assert(ops);
-    memory_region_init(mr, owner, name, size);
-    mr->ops = ops;
-    mr->opaque = opaque;
-    mr->terminates = true;
-    mr->rom_device = true;
-    mr->destructor = memory_region_destructor_ram;
-    mr->ram_block = qemu_ram_alloc(size, RAM_GUEST_MEMFD, mr, &err);
     if (err) {
         mr->size = int128_zero();
         object_unparent(OBJECT(mr));
@@ -1766,6 +1745,7 @@ void memory_region_init_rom_device_private(MemoryRegion *mr,
                                            uint64_t size,
                                            Error **errp)
 {
+#if 0
     DeviceState *owner_dev;
     Error *err = NULL;
 
@@ -1785,6 +1765,7 @@ void memory_region_init_rom_device_private(MemoryRegion *mr,
      */
     owner_dev = DEVICE(owner);
     vmstate_register_ram(mr, owner_dev);
+#endif
 }
 
 void memory_region_init_iommu(void *_iommu_mr,
