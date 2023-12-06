@@ -1394,6 +1394,16 @@ static int x86_kvm_type(MachineState *ms, const char *vm_type)
     kvm_type = kvm_get_vm_type(ms, vm_type);
     x86ms->vm_type = kvm_type;
 
+    if (kvm_type > 0) {
+        ms->require_guest_memfd = true;
+        if (x86ms->smm == ON_OFF_AUTO_AUTO) {
+            x86ms->smm = ON_OFF_AUTO_OFF;
+        } else if (x86ms->smm == ON_OFF_AUTO_ON) {
+            error_report("VM type doesn't support SMM");
+            return -EINVAL;
+        }
+    }
+
     return kvm_type;
 }
 
