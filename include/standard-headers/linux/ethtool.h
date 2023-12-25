@@ -1266,6 +1266,8 @@ struct ethtool_rxfh_indir {
  *	hardware hash key.
  * @hfunc: Defines the current RSS hash function used by HW (or to be set to).
  *	Valid values are one of the %ETH_RSS_HASH_*.
+ * @input_xfrm: Defines how the input data is transformed. Valid values are one
+ *	of %RXH_XFRM_*.
  * @rsvd8: Reserved for future use; see the note on reserved space.
  * @rsvd32: Reserved for future use; see the note on reserved space.
  * @rss_config: RX ring/queue index for each hash value i.e., indirection table
@@ -1285,7 +1287,8 @@ struct ethtool_rxfh {
 	uint32_t   indir_size;
 	uint32_t   key_size;
 	uint8_t	hfunc;
-	uint8_t	rsvd8[3];
+	uint8_t	input_xfrm;
+	uint8_t	rsvd8[2];
 	uint32_t	rsvd32;
 	uint32_t   rss_config[];
 };
@@ -1991,6 +1994,14 @@ static inline int ethtool_validate_duplex(uint8_t duplex)
 #define WAKE_FILTER		(1 << 7)
 
 #define WOL_MODE_COUNT		8
+
+/* RSS hash function data
+ * XOR the corresponding source and destination fields of each specified
+ * protocol. Both copies of the XOR'ed fields are fed into the RSS and RXHASH
+ * calculation. Note that this XORing reduces the input set entropy and could
+ * be exploited to reduce the RSS queue spread.
+ */
+#define	RXH_XFRM_SYM_XOR	(1 << 0)
 
 /* L2-L4 network traffic flow types */
 #define	TCP_V4_FLOW	0x01	/* hash or spec (tcp_ip4_spec) */

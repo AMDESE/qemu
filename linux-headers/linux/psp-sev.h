@@ -29,8 +29,10 @@ enum {
 	SEV_GET_ID,	/* This command is deprecated, use SEV_GET_ID2 */
 	SEV_GET_ID2,
 	SNP_PLATFORM_STATUS,
-	SNP_SET_EXT_CONFIG,
-	SNP_GET_EXT_CONFIG,
+	SNP_COMMIT,
+	SNP_SET_CONFIG,
+	SNP_SET_CONFIG_START,
+	SNP_SET_CONFIG_END,
 
 	SEV_MAX,
 };
@@ -167,14 +169,16 @@ struct sev_user_data_get_id2 {
 /**
  * struct sev_user_data_snp_status - SNP status
  *
- * @major: API major version
- * @minor: API minor version
+ * @api_major: API major version
+ * @api_minor: API minor version
  * @state: current platform state
  * @is_rmp_initialized: whether RMP is initialized or not
- * @build: firmware build id for the API version
+ * @rsvd: reserved
+ * @build_id: firmware build id for the API version
  * @mask_chip_id: whether chip id is present in attestation reports or not
  * @mask_chip_key: whether attestation reports are signed or not
  * @vlek_en: VLEK hashstick is loaded
+ * @rsvd1: reserved
  * @guest_count: the number of guest currently managed by the firmware
  * @current_tcb_version: current TCB version
  * @reported_tcb_version: reported TCB version
@@ -195,12 +199,14 @@ struct sev_user_data_snp_status {
 	__u64 reported_tcb_version;	/* Out */
 } __attribute__((packed));
 
-/*
+/**
  * struct sev_user_data_snp_config - system wide configuration value for SNP.
  *
- * @reported_tcb: The TCB version to report in the guest attestation report.
- * @mask_chip_id: Indicates that the CHID_ID field in the attestation report
- * will always be zero.
+ * @reported_tcb: the TCB version to report in the guest attestation report.
+ * @mask_chip_id: whether chip id is present in attestation reports or not
+ * @mask_chip_key: whether attestation reports are signed or not
+ * @rsvd: reserved
+ * @rsvd1: reserved
  */
 struct sev_user_data_snp_config {
 	__u64 reported_tcb  ;   /* In */
@@ -211,18 +217,13 @@ struct sev_user_data_snp_config {
 } __attribute__((packed));
 
 /**
- * struct sev_data_snp_ext_config - system wide configuration value for SNP.
+ * struct sev_user_data_snp_config_transaction - metadata for config transactions
  *
- * @config_address: address of the struct sev_user_data_snp_config or 0 when
- *		reported_tcb does not need to be updated.
- * @certs_address: address of extended guest request certificate chain or
- *              0 when previous certificate should be removed on SNP_SET_EXT_CONFIG.
- * @certs_len: length of the certs
+ * @id: the ID of the transaction started/ended by a call to SNP_SET_CONFIG_START
+ *	or SNP_SET_CONFIG_END, respectively.
  */
-struct sev_user_data_ext_snp_config {
-	__u64 config_address;		/* In */
-	__u64 certs_address;		/* In */
-	__u32 certs_len;		/* In */
+struct sev_user_data_snp_config_transaction {
+	__u64 id;		/* Out */
 } __attribute__((packed));
 
 /**
