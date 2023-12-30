@@ -2174,25 +2174,8 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     return ret;
 }
 
-#define GHCB_MSR_INFO_POS           0
-#define GHCB_MSR_INFO_MASK          MAKE_64BIT_MASK(GHCB_MSR_INFO_POS, 12)
-
-#define GHCB_MSR_PSC_GFN_POS        12
-#define GHCB_MSR_PSC_GFN_MASK       MAKE_64BIT_MASK(GHCB_MSR_PSC_GFN_POS, 39)
-#define GHCB_MSR_PSC_ERROR_POS      32
-#define GHCB_MSR_PSC_ERROR_MASK     MAKE_64BIT_MASK(GHCB_MSR_PSC_ERROR_POS, 32)
-#define GHCB_MSR_PSC_ERROR          GHCB_MSR_PSC_ERROR_MASK /* all error bits set */
-#define GHCB_MSR_PSC_OP_POS         52
-#define GHCB_MSR_PSC_OP_MASK        MAKE_64BIT_MASK(GHCB_MSR_PSC_OP_POS, 4)
 #define GHCB_MSR_PSC_OP_PRIVATE     1
 #define GHCB_MSR_PSC_OP_SHARED      2
-#define GHCB_MSR_PSC_REQ            0x14
-#define GHCB_MSR_PSC_RESP           0x15
-
-#if 0
-#define GHCB_DATA(v) \
-    (((unsigned long)(v) & ~GHCB_MSR_INFO_MASK) >> GHCB_DATA_LOW
-#endif
 
 #define GHCB_SHARED_BUF_SIZE    0x7f0
 
@@ -2235,31 +2218,16 @@ struct snp_psc_desc {
     struct psc_entry entries[VMGEXIT_PSC_MAX_ENTRY];
 } __attribute__((__packed__));
 
-static int kvm_handle_vmgexit_msr_protocol(__u64 *ghcb_msr)
+static int kvm_handle_vmgexit_psc_msr_protocol(__u64 gpa, __u8 op, __u32 *psc_ret)
 {
-    uint64_t op, gfn;
     int ret;
 
-    if ((*ghcb_msr & GHCB_MSR_INFO_MASK) != GHCB_MSR_PSC_REQ) {
-        g_warning("vmgexit (msr protocol), ghcb_msr: 0x%llx, invalid request",
-                  *ghcb_msr);
-        return -1;
-    }
+    ret = kvm_convert_memory(gpa, TARGET_PAGE_SIZE,
+                             op == KVM_USER_VMGEXIT_PSC_MSR_OP_PRIVATE);
 
-    op = (*ghcb_msr & GHCB_MSR_PSC_OP_MASK) >> GHCB_MSR_PSC_OP_POS;
-    gfn = (*ghcb_msr & GHCB_MSR_PSC_GFN_MASK) >> GHCB_MSR_PSC_GFN_POS;
-    *ghcb_msr = 0;
+    *psc_ret = ret;
 
-    ret = kvm_convert_memory(gfn << TARGET_PAGE_BITS, TARGET_PAGE_SIZE,
-                             op == GHCB_MSR_PSC_OP_PRIVATE);
-
-    if (ret) {
-        *ghcb_msr |= GHCB_MSR_PSC_ERROR;
-    }
-
-    *ghcb_msr |= GHCB_MSR_PSC_RESP;
-
-    return 0;
+    return ret;
 }
 
 static int next_contig_gpa_range(struct snp_psc_desc *desc,
@@ -2308,29 +2276,31 @@ static int next_contig_gpa_range(struct snp_psc_desc *desc,
     return *gfn_count ? 0 : -ENOENT;
 }
 
-int kvm_handle_vmgexit(__u64 *ghcb_msr, __u64 *psc_ret)
+#define PSC_ERROR_GENERIC (0x100UL << 32)
+
+static int kvm_handle_vmgexit_psc(__u64 shared_gpa, __u64 *psc_ret)
 {
-    struct ghcb *ghcb;
-    hwaddr len = sizeof(struct ghcb);
+    hwaddr len = GHCB_SHARED_BUF_SIZE;
     MemTxAttrs attrs = { 0 };
     struct snp_psc_desc *desc;
+    void *ghcb_shared_buf;
     uint8_t shared_buf[GHCB_SHARED_BUF_SIZE];
-    uint64_t ghcb_addr = *ghcb_msr;
     uint16_t entries_processed;
     hwaddr gfn_base = 0;
     int gfn_count = 0;
     bool range_to_private;
 
-    if (*ghcb_msr & GHCB_MSR_INFO_MASK) {
-        return kvm_handle_vmgexit_msr_protocol(ghcb_msr);
-    }
-
     *psc_ret = 0;
-    ghcb = address_space_map(&address_space_memory, ghcb_addr,
-                                  &len, true, attrs);
-
-    memcpy(shared_buf, ghcb->shared_buffer, GHCB_SHARED_BUF_SIZE);
-    address_space_unmap(&address_space_memory, ghcb, len, true, len);
+    ghcb_shared_buf = address_space_map(&address_space_memory, shared_gpa,
+                                        &len, true, attrs);
+    if (len < GHCB_SHARED_BUF_SIZE) {
+        g_warning("unable to map entire shared GHCB buffer, mapped size %ld (expected %d)",
+                  len, GHCB_SHARED_BUF_SIZE);
+        *psc_ret = PSC_ERROR_GENERIC;
+        goto out_unmap;
+    }
+    memcpy(shared_buf, ghcb_shared_buf, GHCB_SHARED_BUF_SIZE);
+    address_space_unmap(&address_space_memory, ghcb_shared_buf, len, true, len);
 
     desc = (struct snp_psc_desc *)shared_buf;
 
@@ -2347,13 +2317,38 @@ int kvm_handle_vmgexit(__u64 *ghcb_msr, __u64 *psc_ret)
         desc->hdr.cur_entry += entries_processed;
     }
 
-    /* TODO: what happens if ghcb tries to convert itself? */
-    ghcb = address_space_map(&address_space_memory, ghcb_addr,
-                                  &len, true, attrs);
-    memcpy(ghcb->shared_buffer, shared_buf, GHCB_SHARED_BUF_SIZE);
-    address_space_unmap(&address_space_memory, ghcb, len, true, len);
+    ghcb_shared_buf = address_space_map(&address_space_memory, shared_gpa,
+                                        &len, true, attrs);
+    if (len < GHCB_SHARED_BUF_SIZE) {
+        g_warning("unable to map entire shared GHCB buffer, mapped size %ld (expected %d)",
+                  len, GHCB_SHARED_BUF_SIZE);
+        *psc_ret = PSC_ERROR_GENERIC;
+        goto out_unmap;
+    }
+    memcpy(ghcb_shared_buf, shared_buf, GHCB_SHARED_BUF_SIZE);
+out_unmap:
+    address_space_unmap(&address_space_memory, ghcb_shared_buf, len, true, len);
 
     return 0;
+}
+
+int kvm_handle_vmgexit(struct kvm_run *run)
+{
+    int ret;
+
+    if (run->vmgexit.type == KVM_USER_VMGEXIT_PSC) {
+        ret = kvm_handle_vmgexit_psc(run->vmgexit.psc.shared_gpa,
+                                     &run->vmgexit.psc.ret);
+    } else if (run->vmgexit.type == KVM_USER_VMGEXIT_PSC_MSR) {
+        ret = kvm_handle_vmgexit_psc_msr_protocol(run->vmgexit.psc_msr.gpa,
+                                                  run->vmgexit.psc_msr.op,
+                                                  &run->vmgexit.psc_msr.ret);
+    } else {
+        warn_report("KVM: unknown vmgexit type: %d", run->vmgexit.type);
+        ret = -1;
+    }
+
+    return ret;
 }
 
 static void

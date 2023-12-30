@@ -5395,7 +5395,7 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         break;
 #endif
     case KVM_EXIT_VMGEXIT:
-        ret = kvm_handle_vmgexit(&run->vmgexit.ghcb_msr, &run->vmgexit.ret);
+        ret = kvm_handle_vmgexit(run);
         break;
     default:
         fprintf(stderr, "KVM: unknown exit reason %d\n", run->exit_reason);
