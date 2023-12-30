@@ -1807,6 +1807,7 @@ static void dirty_memory_extend(ram_addr_t old_ram_size,
 #define HPAGE_PMD_SIZE_PATH "/sys/kernel/mm/transparent_hugepage/hpage_pmd_size"
 #define DEFAULT_PMD_SIZE (1ul << 21)
 
+#if 0
 static uint32_t get_thp_size(void)
 {
     gchar *content = NULL;
@@ -1835,6 +1836,7 @@ static uint32_t get_thp_size(void)
 
     return thp_size;
 }
+#endif
 #endif
 
 static void ram_block_add(RAMBlock *new_block, Error **errp)
@@ -1878,10 +1880,12 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
 #ifdef CONFIG_KVM
     if (kvm_enabled() && new_block->flags & RAM_GUEST_MEMFD &&
         new_block->guest_memfd < 0) {
+#if 0
         uint64_t flags = QEMU_IS_ALIGNED(new_block->max_length, get_thp_size()) ?
                          KVM_GUEST_MEMFD_ALLOW_HUGEPAGE : 0;
+#endif
         new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
-                                                        flags, errp);
+                                                        0, errp);
         if (new_block->guest_memfd < 0) {
             qemu_mutex_unlock_ramlist();
             return;
