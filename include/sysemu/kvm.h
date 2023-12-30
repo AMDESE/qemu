@@ -171,6 +171,8 @@ typedef struct KVMCapabilityInfo {
 #define KVM_CAP_INFO(CAP) { "KVM_CAP_" stringify(CAP), KVM_CAP_##CAP }
 #define KVM_CAP_LAST_INFO { NULL, 0 }
 
+typedef int (*coco_fn)(struct kvm_run *run);
+
 struct KVMState;
 
 #define TYPE_KVM_ACCEL ACCEL_CLASS_NAME("kvm")
@@ -577,5 +579,7 @@ int kvm_set_memory_attributes_private(hwaddr start, uint64_t size);
 int kvm_set_memory_attributes_shared(hwaddr start, uint64_t size);
 
 int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private);
+
+int kvm_register_coco_handler(KVMState *s, uint32_t type, coco_fn fn);
 
 #endif

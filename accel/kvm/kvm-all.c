@@ -3080,6 +3080,31 @@ out_unref:
     return ret;
 }
 
+int kvm_register_coco_handler(KVMState *s, uint32_t type, coco_fn fn)
+{
+    /*
+     * TODO: this wipes the existing mask every time. store enabled mask so we
+     * can just OR in new ones
+     */
+    if (type >= KVM_EXIT_COCO_MAX ||
+        kvm_vm_enable_cap(s, KVM_CAP_EXIT_COCO, 0, BIT_ULL(type))) {
+        return -EINVAL;
+    }
+
+    g_warning("kvm_state: %p", kvm_state);
+    g_warning("kvm_state->coco_handlers: %p", s->coco_handlers);
+    g_warning("kvm_state->coco_handlers[0]: %p", s->coco_handlers[0]);
+
+    if (fn && s->coco_handlers[type]) {
+        warn_report("Handler already registered for KVM_EXIT_COCO event type %d",
+                    type);
+        return -EINVAL;
+    }
+
+    kvm_state->coco_handlers[type] = fn;
+    return 0;
+}
+
 int kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
@@ -3260,6 +3285,15 @@ int kvm_cpu_exec(CPUState *cpu)
             }
             ret = kvm_convert_memory(run->memory_fault.gpa, run->memory_fault.size,
                                      run->memory_fault.flags & KVM_MEMORY_EXIT_FLAG_PRIVATE);
+            break;
+        case KVM_EXIT_COCO:
+            if (run->coco.nr < KVM_EXIT_COCO_MAX &&
+                kvm_state->coco_handlers[run->coco.nr]) {
+                ret = kvm_state->coco_handlers[run->coco.nr](run);
+            } else {
+                error_report("KVM_EXIT_COCO: Unexpected type %d", run->coco.nr);
+                ret = -1;
+            }
             break;
         default:
             ret = kvm_arch_handle_exit(cpu, run);

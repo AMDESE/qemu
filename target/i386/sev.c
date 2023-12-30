@@ -157,6 +157,8 @@ struct SevSnpGuestState {
     char *id_auth_base64;
     uint8_t *id_auth;
     char *host_data;
+    char *certs_path;
+    int certs_fd;
 
     struct kvm_sev_snp_launch_start kvm_start_conf;
     struct kvm_sev_snp_launch_finish kvm_finish_conf;
@@ -1355,6 +1357,148 @@ sev_snp_launch_finish(SevCommonState *sev_common)
     }
 }
 
+static int open_certs_locked(SevSnpGuestState *sev_snp_guest)
+{
+    int fd, ret;
+
+    if (sev_snp_guest->certs_fd != -1) {
+        return 0;
+    }
+
+    fd = qemu_open(sev_snp_guest->certs_path, O_RDONLY, NULL);
+    if (fd == -1) {
+        return fd;
+    }
+
+    ret = qemu_lock_fd(fd, 0, 0, false);
+    if (ret == -EAGAIN || ret == -EACCES) {
+        g_warning("already locked, ret %d", ret);
+        ret = -EAGAIN;
+        goto out_close;
+    } else if (ret) {
+        goto out_close;
+    }
+
+    sev_snp_guest->certs_fd = fd;
+    return 0;
+out_close:
+    close(fd);
+    return ret;
+}
+
+static void close_certs(SevSnpGuestState *sev_snp_guest)
+{
+    if (sev_snp_guest->certs_fd == -1) {
+        return;
+    }
+
+    qemu_unlock_fd(sev_snp_guest->certs_fd, 0, 0);
+    close(sev_snp_guest->certs_fd);
+    sev_snp_guest->certs_fd = -1;
+}
+
+static ssize_t get_certs_size(SevSnpGuestState *sev_snp_guest)
+{
+    ssize_t size;
+
+    size = lseek(sev_snp_guest->certs_fd, 0, SEEK_END);
+
+    if (size < 0)
+        return -errno;
+
+    return size;
+}
+
+static int read_certs(SevSnpGuestState *sev_snp_guest, void *buf, size_t buf_len)
+{
+    ssize_t n, len = 0;
+
+    n = lseek(sev_snp_guest->certs_fd, 0, SEEK_SET);
+    if (n) {
+        return n;
+    }
+
+    while ((n = read(sev_snp_guest->certs_fd, buf, buf_len)) != 0) {
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            } else {
+                len = -errno;
+                break;
+            }
+        }
+        len += n;
+    }
+
+    return len;
+}
+
+static int kvm_exit_coco_req_certs(struct kvm_run *run)
+{
+    struct kvm_exit_coco *coco = &run->coco;
+    g_autofree gchar *contents = NULL;
+    SevSnpGuestState *sev_snp_guest;
+    MemTxAttrs attrs = { 0 };
+    uint32_t npages;
+    hwaddr gpa;
+    void *guest_buf;
+    hwaddr buf_sz;
+    int ret;
+
+    coco->ret = EIO;
+
+    if (!sev_snp_enabled()) {
+        return -EIO;
+    }
+
+    gpa = coco->req_certs.gfn << TARGET_PAGE_BITS;
+    npages = coco->req_certs.npages;
+
+    sev_snp_guest = SEV_SNP_GUEST(MACHINE(qdev_get_machine())->cgs);
+    if (!sev_snp_guest->certs_path) {
+        coco->ret = 0;
+        return 0;
+    }
+
+    ret = open_certs_locked(sev_snp_guest);
+    if (ret == -EAGAIN) {
+        coco->ret = EAGAIN;
+        return 0;
+    } else if (ret) {
+        return ret;
+    }
+
+    buf_sz = npages * TARGET_PAGE_SIZE;
+    if (buf_sz < get_certs_size(sev_snp_guest)) {
+        coco->ret = ENOSPC;
+        coco->req_certs.npages = (get_certs_size(sev_snp_guest) + TARGET_PAGE_SIZE) / TARGET_PAGE_SIZE;
+        goto out_close;
+    }
+
+    guest_buf = address_space_map(&address_space_memory, gpa, &buf_sz, true, attrs);
+    if (buf_sz < npages * TARGET_PAGE_SIZE) {
+        error_report("Unable to map entire guest buffer, mapped size %ld (expected %ld)",
+                     buf_sz, get_certs_size(sev_snp_guest));
+        goto out_unmap;
+    }
+
+    ret = read_certs(sev_snp_guest, guest_buf, buf_sz);
+    if (ret < 0) {
+        error_report("Unable to read certificate data in guest buffer, ret %d", ret);
+        goto out_unmap;
+
+    }
+
+    coco->ret = 0;
+
+out_unmap:
+    address_space_unmap(&address_space_memory, guest_buf, buf_sz, true, buf_sz);
+out_close:
+    /* TODO: move close/unlock to an immediate_exit/EINTR callback */
+    close_certs(sev_snp_guest);
+
+    return ret;
+}
 
 static void
 sev_vm_state_change(void *opaque, bool running, RunState state)
@@ -1594,6 +1738,7 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 
 static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(cgs);
     MachineState *ms = MACHINE(qdev_get_machine());
     X86MachineState *x86ms = X86_MACHINE(ms);
 
@@ -1601,6 +1746,13 @@ static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         x86ms->smm = ON_OFF_AUTO_OFF;
     } else if (x86ms->smm == ON_OFF_AUTO_ON) {
         error_setg(errp, "SEV-SNP does not support SMM.");
+        return -1;
+    }
+
+    if (sev_snp_guest->certs_path &&
+        kvm_register_coco_handler(kvm_state, KVM_EXIT_COCO_REQ_CERTS,
+                                  kvm_exit_coco_req_certs)) {
+        error_setg(errp, "failed to register handler for KVM_EXIT_COCO_REQ_CERTS events");
         return -1;
     }
 
@@ -2393,6 +2545,26 @@ sev_snp_guest_set_host_data(Object *obj, const char *value, Error **errp)
     memcpy(finish->host_data, blob, len);
 }
 
+static char *
+sev_snp_guest_get_certs_path(Object *obj, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    return g_strdup(sev_snp_guest->certs_path);
+}
+
+static void
+sev_snp_guest_set_certs_path(Object *obj, const char *value, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    if (sev_snp_guest->certs_path) {
+        g_free(sev_snp_guest->certs_path);
+    }
+
+    sev_snp_guest->certs_path = value ? g_strdup(value) : NULL;
+}
+
 static void
 sev_snp_guest_class_init(ObjectClass *oc, void *data)
 {
@@ -2428,6 +2600,9 @@ sev_snp_guest_class_init(ObjectClass *oc, void *data)
     object_class_property_add_str(oc, "host-data",
                                   sev_snp_guest_get_host_data,
                                   sev_snp_guest_set_host_data);
+    object_class_property_add_str(oc, "certs-path",
+                                  sev_snp_guest_get_certs_path,
+                                  sev_snp_guest_set_certs_path);
 }
 
 static void
@@ -2440,6 +2615,8 @@ sev_snp_guest_instance_init(Object *obj)
 
     /* default init/start/finish params for kvm */
     sev_snp_guest->kvm_start_conf.policy = DEFAULT_SEV_SNP_POLICY;
+
+    sev_snp_guest->certs_fd = -1;
 }
 
 /* guest info specific to sev-snp */
