@@ -96,6 +96,7 @@ struct SevSnpGuestState {
     char *id_block;
     char *id_auth;
     char *host_data;
+    char *certs_path;
 
     struct kvm_sev_snp_launch_start kvm_start_conf;
     struct kvm_sev_snp_launch_finish kvm_finish_conf;
@@ -1572,6 +1573,63 @@ static int kvm_handle_vmgexit_psc_msr_protocol(__u64 gpa, __u8 op, __u32 *psc_re
     return ret;
 }
 
+#define SNP_EXT_REQ_ERROR_INVALID_LEN   1
+#define SNP_EXT_REQ_ERROR_BUSY          2
+#define SNP_EXT_REQ_ERROR_GENERIC       (1 << 31)
+
+static int kvm_handle_vmgexit_ext_req(__u64 gpa, __u64 *npages, __u32 *vmm_ret)
+{
+    SevSnpGuestState *sev_snp_guest;
+    MemTxAttrs attrs = { 0 };
+    void *guest_buf;
+    hwaddr buf_sz;
+    gsize sz;
+    g_autofree gchar *contents = NULL;
+    GError *error = NULL;
+
+    *vmm_ret = SNP_EXT_REQ_ERROR_GENERIC;
+
+    if (!sev_snp_enabled()) {
+        return 0;
+    }
+
+    sev_snp_guest = SEV_SNP_GUEST(MACHINE(qdev_get_machine())->cgs);
+
+    if (!sev_snp_guest->certs_path) {
+        *vmm_ret = 0;
+        return 0;
+    }
+
+    if (!g_file_get_contents(sev_snp_guest->certs_path, &contents, &sz, &error)) {
+        error_report("SEV: Failed to read '%s' (%s)", sev_snp_guest->certs_path, error->message);
+        g_error_free(error);
+        return 0;
+    }
+
+    buf_sz = *npages * TARGET_PAGE_SIZE;
+
+    if (buf_sz < sz) {
+        *vmm_ret = SNP_EXT_REQ_ERROR_INVALID_LEN;
+        *npages = (sz + TARGET_PAGE_SIZE) / TARGET_PAGE_SIZE;
+        return 0;
+    }
+
+    guest_buf = address_space_map(&address_space_memory, gpa, &buf_sz, true, attrs);
+    if (buf_sz < sz) {
+        g_warning("unable to map entire shared buffer, mapped size %ld (expected %d)",
+                  buf_sz, GHCB_SHARED_BUF_SIZE);
+        goto out_unmap;
+    }
+
+    memcpy(guest_buf, contents, buf_sz);
+    *vmm_ret = 0;
+
+out_unmap:
+    address_space_unmap(&address_space_memory, guest_buf, buf_sz, true, buf_sz);
+
+    return 0;
+}
+
 int kvm_handle_vmgexit(struct kvm_run *run)
 {
     int ret;
@@ -1583,6 +1641,10 @@ int kvm_handle_vmgexit(struct kvm_run *run)
         ret = kvm_handle_vmgexit_psc_msr_protocol(run->vmgexit.psc_msr.gpa,
                                                   run->vmgexit.psc_msr.op,
                                                   &run->vmgexit.psc_msr.ret);
+    } else if (run->vmgexit.type == KVM_USER_VMGEXIT_EXT_GUEST_REQ) {
+        ret = kvm_handle_vmgexit_ext_req(run->vmgexit.ext_guest_req.data_gpa,
+                                         &run->vmgexit.ext_guest_req.data_npages,
+                                         &run->vmgexit.ext_guest_req.ret);
     } else {
         warn_report("KVM: unknown vmgexit type: %d", run->vmgexit.type);
         ret = -1;
@@ -1914,6 +1976,26 @@ sev_snp_guest_set_host_data(Object *obj, const char *value, Error **errp)
     memcpy(finish->host_data, blob, len);
 }
 
+static char *
+sev_snp_guest_get_certs_path(Object *obj, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    return g_strdup(sev_snp_guest->certs_path);
+}
+
+static void
+sev_snp_guest_set_certs_path(Object *obj, const char *value, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    if (sev_snp_guest->host_data) {
+        g_free(sev_snp_guest->host_data);
+    }
+
+    sev_snp_guest->certs_path = value ? g_strdup(value) : NULL;
+}
+
 static void
 sev_snp_guest_class_init(ObjectClass *oc, void *data)
 {
@@ -1935,6 +2017,9 @@ sev_snp_guest_class_init(ObjectClass *oc, void *data)
     object_class_property_add_str(oc, "host-data",
                                   sev_snp_guest_get_host_data,
                                   sev_snp_guest_set_host_data);
+    object_class_property_add_str(oc, "certs-path",
+                                  sev_snp_guest_get_certs_path,
+                                  sev_snp_guest_set_certs_path);
 }
 
 static void

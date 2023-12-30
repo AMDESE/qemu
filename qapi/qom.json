@@ -957,6 +957,10 @@
 #             SNP_LAUNCH_FINISH command in the SEV-SNP firmware ABI
 #             (default: all-zero)
 #
+# @certs-path: path to certificate data that can be passed to guests via
+#              SNP Extended Guest Requests. File should be in the format
+#              described in the GHCB specification. (default: none)
+#
 # Since: 7.2
 ##
 { 'struct': 'SevSnpGuestProperties',
@@ -967,7 +971,8 @@
             '*id-block': 'str',
             '*id-auth': 'str',
             '*auth-key-enabled': 'bool',
-            '*host-data': 'str' } }
+            '*host-data': 'str',
+            '*certs-path': 'str' } }
 
 ##
 # @ThreadContextProperties:
