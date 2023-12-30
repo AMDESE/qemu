@@ -157,6 +157,9 @@ struct SevSnpGuestState {
     char *id_auth_base64;
     uint8_t *id_auth;
     char *host_data;
+    char *certs_path;
+    int certs_fd;
+    uint32_t certs_timeout;
 
     struct kvm_sev_snp_launch_start kvm_start_conf;
     struct kvm_sev_snp_launch_finish kvm_finish_conf;
@@ -1355,6 +1358,215 @@ sev_snp_launch_finish(SevCommonState *sev_common)
     }
 }
 
+static int open_certs_locked(SevSnpGuestState *sev_snp_guest)
+{
+    int fd, ret;
+
+    if (sev_snp_guest->certs_fd != -1) {
+        return 0;
+    }
+
+    fd = qemu_open(sev_snp_guest->certs_path, O_RDONLY, NULL);
+    if (fd == -1) {
+        error_report("Unable to open certificate blob at path %s, ret %d",
+                     sev_snp_guest->certs_path, fd);
+        return fd;
+    }
+
+    ret = qemu_lock_fd(fd, 0, 0, false);
+    if (ret == -EAGAIN || ret == -EACCES) {
+        ret = -EAGAIN;
+        goto out_close;
+    } else if (ret) {
+        goto out_close;
+    }
+
+    sev_snp_guest->certs_fd = fd;
+    return 0;
+out_close:
+    close(fd);
+    return ret;
+}
+
+static void close_certs(SevSnpGuestState *sev_snp_guest)
+{
+    if (sev_snp_guest->certs_fd == -1) {
+        return;
+    }
+
+    qemu_unlock_fd(sev_snp_guest->certs_fd, 0, 0);
+    close(sev_snp_guest->certs_fd);
+    sev_snp_guest->certs_fd = -1;
+}
+
+static ssize_t get_certs_size(SevSnpGuestState *sev_snp_guest)
+{
+    ssize_t size;
+
+    size = lseek(sev_snp_guest->certs_fd, 0, SEEK_END);
+
+    if (size < 0)
+        return -errno;
+
+    return size;
+}
+
+static int read_certs(SevSnpGuestState *sev_snp_guest, void *buf, size_t buf_len)
+{
+    ssize_t n, len = 0;
+
+    n = lseek(sev_snp_guest->certs_fd, 0, SEEK_SET);
+    if (n) {
+        return n;
+    }
+
+    while ((n = read(sev_snp_guest->certs_fd, buf, buf_len)) != 0) {
+        if (n < 0) {
+            if (errno == EINTR) {
+                continue;
+            } else {
+                len = -errno;
+                break;
+            }
+        }
+        len += n;
+    }
+
+    return len;
+}
+
+static void snp_release_certs_lock(void *opaque)
+{
+    SevSnpGuestState *sev_snp_guest = opaque;
+
+    close_certs(sev_snp_guest);
+}
+
+static void certs_timeout(void *opaque)
+{
+    bool *timed_out = opaque;
+
+    *timed_out = true;
+}
+
+int kvm_handle_snp_req_certs(CPUState *cpu, struct kvm_run *run)
+{
+    struct kvm_exit_snp_req_certs *req_certs = &run->snp_req_certs;
+    g_autofree gchar *contents = NULL;
+    SevSnpGuestState *sev_snp_guest;
+    MemTxAttrs attrs = { 0 };
+    bool timed_out = false;
+    QEMUTimer *timer;
+    uint32_t npages;
+    void *guest_buf;
+    hwaddr buf_sz;
+    hwaddr gpa;
+    int ret;
+
+    req_certs->ret = EIO;
+
+    if (!sev_snp_enabled()) {
+        return -EIO;
+    }
+
+    gpa = req_certs->gfn << TARGET_PAGE_BITS;
+    npages = req_certs->npages;
+
+    sev_snp_guest = SEV_SNP_GUEST(MACHINE(qdev_get_machine())->cgs);
+    if (!sev_snp_guest->certs_path) {
+        req_certs->ret = 0;
+        return 0;
+    }
+
+    /*
+     * -EAGAIN from open_certs_locked() indicates that a lock could not be
+     * obtained on the certificate file. It would be possible to set
+     * req_certs->ret = EAGAIN to immediately inform the requesting vCPU of
+     * this condition so that it can retry again later, however, linux guests
+     * are currently hard-limited to a 60 second timeout, at which point they
+     * will assume misbehavior and refuse to continue issuing attestation
+     * requests from that point forward.
+     *
+     * Allowing for this guest timeout to be configured in some way that will
+     * be easier to coordinate with on the QEMU side will make that approach
+     * more viable, but until then just busy-wait on the QEMU side, which
+     * allows more flexibility in how long QEMU can wait for things like SNP
+     * firmware updates/etc. which may be holding an exclusive lock on the
+     * certificate.
+     *
+     * The down-side to doing things this way is that too long of a busy-wait
+     * will result in soft-lockups in the guest, but the guest will otherwise
+     * continue normally afterward.
+     *
+     * If the QEMU-side timeout is reached, then just go ahead and indicate
+     * EAGAIN to the guest, at which point the above-mentioned guest-side
+     * timeout will trigger if QEMU's timeout exceeds that of the guest. But
+     * that's better than killing the vCPU, which is the only viable
+     * alternative at that point.
+     */
+    timer = timer_new_ms(QEMU_CLOCK_REALTIME, certs_timeout, &timed_out);
+    timer_mod(timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) +
+                     sev_snp_guest->certs_timeout);
+
+    do {
+        ret = open_certs_locked(sev_snp_guest);
+        g_usleep(1000);
+    } while (ret == -EAGAIN && !timed_out);
+
+    timer_del(timer);
+
+    if (ret) {
+        if (timed_out) {
+            req_certs->ret = EAGAIN;
+            return 0;
+        }
+
+        /*
+         * It's a bit ambiguous when to propagate a generic error to the guest
+         * rather than simply letting QEMU crash. The general methodology here
+         * is to let QEMU crash if there is a misconfiguration issue that the
+         * guest has absolutely no potential role in, but to otherwise notify
+         * the guest if there is some remote possibility that the issue is
+         * related to something on the guest side.
+         */
+        return ret;
+    }
+
+    buf_sz = npages * TARGET_PAGE_SIZE;
+    if (buf_sz < get_certs_size(sev_snp_guest)) {
+        req_certs->ret = ENOSPC;
+        req_certs->npages =
+            (get_certs_size(sev_snp_guest) + TARGET_PAGE_SIZE) / TARGET_PAGE_SIZE;
+        close_certs(sev_snp_guest);
+        goto out;
+    }
+
+    guest_buf = address_space_map(&address_space_memory, gpa, &buf_sz, true, attrs);
+    if (buf_sz < npages * TARGET_PAGE_SIZE) {
+        error_report_once("Unable to map entire guest buffer, mapped size %ld (expected %ld)",
+                          buf_sz, get_certs_size(sev_snp_guest));
+        close_certs(sev_snp_guest);
+        goto out_unmap;
+    }
+
+    ret = read_certs(sev_snp_guest, guest_buf, buf_sz);
+    if (ret < 0) {
+        error_report_once("Unable to read certificate data into guest buffer, ret %d",
+                          ret);
+        close_certs(sev_snp_guest);
+        goto out_unmap;
+
+    }
+
+    req_certs->ret = 0;
+
+    add_immediate_exit_callback(cpu, snp_release_certs_lock, sev_snp_guest);
+out_unmap:
+    address_space_unmap(&address_space_memory, guest_buf, buf_sz, true, buf_sz);
+
+out:
+    return ret;
+}
 
 static void
 sev_vm_state_change(void *opaque, bool running, RunState state)
@@ -1594,6 +1806,7 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 
 static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(cgs);
     MachineState *ms = MACHINE(qdev_get_machine());
     X86MachineState *x86ms = X86_MACHINE(ms);
 
@@ -1601,6 +1814,13 @@ static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         x86ms->smm = ON_OFF_AUTO_OFF;
     } else if (x86ms->smm == ON_OFF_AUTO_ON) {
         error_setg(errp, "SEV-SNP does not support SMM.");
+        return -1;
+    }
+
+    if (sev_snp_guest->certs_path &&
+        kvm_vm_enable_cap(kvm_state, KVM_CAP_EXIT_SNP_REQ_CERTS, 0, 1)) {
+        error_setg(errp, "Failed to enable support for SEV-SNP "
+                         "certificate-fetching requests.");
         return -1;
     }
 
@@ -2393,6 +2613,26 @@ sev_snp_guest_set_host_data(Object *obj, const char *value, Error **errp)
     memcpy(finish->host_data, blob, len);
 }
 
+static char *
+sev_snp_guest_get_certs_path(Object *obj, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    return g_strdup(sev_snp_guest->certs_path);
+}
+
+static void
+sev_snp_guest_set_certs_path(Object *obj, const char *value, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    if (sev_snp_guest->certs_path) {
+        g_free(sev_snp_guest->certs_path);
+    }
+
+    sev_snp_guest->certs_path = value ? g_strdup(value) : NULL;
+}
+
 static void
 sev_snp_guest_class_init(ObjectClass *oc, void *data)
 {
@@ -2428,6 +2668,9 @@ sev_snp_guest_class_init(ObjectClass *oc, void *data)
     object_class_property_add_str(oc, "host-data",
                                   sev_snp_guest_get_host_data,
                                   sev_snp_guest_set_host_data);
+    object_class_property_add_str(oc, "certs-path",
+                                  sev_snp_guest_get_certs_path,
+                                  sev_snp_guest_set_certs_path);
 }
 
 static void
@@ -2440,6 +2683,12 @@ sev_snp_guest_instance_init(Object *obj)
 
     /* default init/start/finish params for kvm */
     sev_snp_guest->kvm_start_conf.policy = DEFAULT_SEV_SNP_POLICY;
+
+    sev_snp_guest->certs_fd = -1;
+    sev_snp_guest->certs_timeout = 100;
+    object_property_add_uint32_ptr(obj, "certs-timeout",
+                                   &sev_snp_guest->certs_timeout,
+                                   OBJ_PROP_FLAG_READWRITE);
 }
 
 /* guest info specific to sev-snp */

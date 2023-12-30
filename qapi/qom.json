@@ -1034,6 +1034,25 @@
 #     firmware.  Set this to true to disable the use of VCEK.
 #     (default: false) (since: 9.1)
 #
+# @certs-path: Path to certificate data that can be passed to guests via
+#              SNP Extended Guest Requests. File should be in the format
+#              described in the GHCB specification. (default: none)
+#              (since: 10.0)
+#
+# @certs-timeout: Max time in milliseconds to wait to obtain a read lock
+#                 on the certificate file specified by @certs-path. This
+#                 is not a cumulative value and only affects how long
+#                 QEMU waits before returning execution to the vCPU and
+#                 informing the guest of the timeout, so the guest can
+#                 still continuing retrying for as long as it likes
+#                 (which will be about 60 seconds for linux guests at
+#                 the time of this writing). If the guest-side timeout
+#                 is insufficient, set this higher to allow more time to
+#                 fetch the certificate. If the guest-side timeout is
+#                 sufficient, set this lower to reduce the likelihood of
+#                 soft lockups in the guest.
+#                 (default: 100) (since: 10.0)
+#
 # Since: 9.1
 ##
 { 'struct': 'SevSnpGuestProperties',
@@ -1045,7 +1064,9 @@
             '*id-auth': 'str',
             '*author-key-enabled': 'bool',
             '*host-data': 'str',
-            '*vcek-disabled': 'bool' } }
+            '*vcek-disabled': 'bool',
+            '*certs-path': 'str',
+            '*certs-timeout': 'uint32' } }
 
 ##
 # @ThreadContextProperties:

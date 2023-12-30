@@ -68,4 +68,6 @@ void sev_es_set_reset_vector(CPUState *cpu);
 
 void pc_system_parse_sev_metadata(uint8_t *flash_ptr, size_t flash_size);
 
+int kvm_handle_snp_req_certs(CPUState *cpu, struct kvm_run *run);
+
 #endif
