@@ -3649,6 +3649,14 @@ void memory_region_init_ram_guest_memfd(MemoryRegion *mr,
     DeviceState *owner_dev;
     Error *err = NULL;
 
+    /*
+     * TODO: drop this whole function and just have memory_region_init_ram()
+     * handle this case automatically.
+     */
+    if (!kvm_has_restricted_memory()) {
+        return memory_region_init_ram(mr, owner, name, size, errp);
+    }
+
     memory_region_init_ram_flags_nomigrate(mr, owner, name, size,
                                            RAM_GUEST_MEMFD, &err);
     if (err) {
