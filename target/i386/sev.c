@@ -1775,7 +1775,9 @@ int sev_kvm_init(MachineState *ms, Error **errp)
         goto err;
     }
 
-    ram_block_notifier_add(&sev_ram_notifier);
+    if (!sev_snp_enabled()) {
+        ram_block_notifier_add(&sev_ram_notifier);
+    }
 
     /*
      * The machine done notify event is used by the SEV guest to get the
