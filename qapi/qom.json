@@ -944,7 +944,8 @@
             '*id-auth': 'str',
             '*auth-key-enabled': 'bool',
             '*host-data': 'str',
-            '*certs-path': 'str' } }
+            '*certs-path': 'str',
+            '*svsm': 'str' } }
 
 ##
 # @ThreadContextProperties:

@@ -34,6 +34,11 @@
 #define SEV_SNP_POLICY_SMT      0x10000
 #define SEV_SNP_POLICY_DBG      0x80000
 
+/* SEV feature SNPActive */
+#define SEV_FEAT_SNP_ACTIVE     (1 << 0)
+
+#define VMPL1_SEV_FEATURES      SEV_FEAT_SNP_ACTIVE
+
 typedef struct SevKernelLoaderContext {
     char *setup_data;
     size_t setup_size;
@@ -68,5 +73,7 @@ void sev_es_set_reset_state(CPUState *cpu);
 
 int sev_kvm_init(MachineState *ms, Error **errp);
 int kvm_handle_vmgexit(struct kvm_run *run);
+
+void sev_snp_svsm_init(MachineState *ms);
 
 #endif
