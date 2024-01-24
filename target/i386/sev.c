@@ -884,9 +884,9 @@ sev_get_pdh_info(int fd, guchar **pdh, size_t *pdh_len, guchar **cert_chain,
     r = sev_platform_ioctl(fd, SEV_PDH_CERT_EXPORT, &export, &err);
     if (r < 0) {
         if (err != SEV_RET_INVALID_LEN) {
-            error_setg(errp, "SEV: Failed to export PDH cert"
+            error_setg_errno(errp, errno, "SEV: Failed to export PDH cert"
                              " ret=%d fw_err=%d (%s)",
-                       r, err, fw_error_to_str(err));
+                             r, err, fw_error_to_str(err));
             return 1;
         }
     }
@@ -898,8 +898,8 @@ sev_get_pdh_info(int fd, guchar **pdh, size_t *pdh_len, guchar **cert_chain,
 
     r = sev_platform_ioctl(fd, SEV_PDH_CERT_EXPORT, &export, &err);
     if (r < 0) {
-        error_setg(errp, "SEV: Failed to export PDH cert ret=%d fw_err=%d (%s)",
-                   r, err, fw_error_to_str(err));
+        error_setg_errno(errp, errno, "SEV: Failed to export PDH cert ret=%d fw_err=%d (%s)",
+                         r, err, fw_error_to_str(err));
         goto e_free;
     }
 
@@ -924,8 +924,8 @@ static int sev_get_cpu0_id(int fd, guchar **id, size_t *id_len, Error **errp)
     /* query the ID length */
     r = sev_platform_ioctl(fd, SEV_GET_ID2, &get_id2, &err);
     if (r < 0 && err != SEV_RET_INVALID_LEN) {
-        error_setg(errp, "SEV: Failed to get ID ret=%d fw_err=%d (%s)",
-                   r, err, fw_error_to_str(err));
+        error_setg_errno(errp, errno, "SEV: Failed to get ID ret=%d fw_err=%d (%s)",
+                         r, err, fw_error_to_str(err));
         return 1;
     }
 
@@ -934,8 +934,8 @@ static int sev_get_cpu0_id(int fd, guchar **id, size_t *id_len, Error **errp)
 
     r = sev_platform_ioctl(fd, SEV_GET_ID2, &get_id2, &err);
     if (r < 0) {
-        error_setg(errp, "SEV: Failed to get ID ret=%d fw_err=%d (%s)",
-                   r, err, fw_error_to_str(err));
+        error_setg_errno(errp, errno, "SEV: Failed to get ID ret=%d fw_err=%d (%s)",
+                         r, err, fw_error_to_str(err));
         goto err;
     }
 
@@ -1058,9 +1058,9 @@ static SevAttestationReport *sev_get_attestation_report(const char *mnonce,
             &input, &err);
     if (ret < 0) {
         if (err != SEV_RET_INVALID_LEN) {
-            error_setg(errp, "SEV: Failed to query the attestation report"
+            error_setg_errno(errp, errno, "SEV: Failed to query the attestation report"
                              " length ret=%d fw_err=%d (%s)",
-                       ret, err, fw_error_to_str(err));
+                             ret, err, fw_error_to_str(err));
             return NULL;
         }
     }
@@ -1121,8 +1121,8 @@ sev_snp_launch_start(SevSnpGuestState *sev_snp_guest)
     rc = sev_ioctl(sev_common->sev_fd, KVM_SEV_SNP_LAUNCH_START,
                    start, &fw_error);
     if (rc < 0) {
-        error_report("%s: SNP_LAUNCH_START ret=%d fw_error=%d '%s'",
-                __func__, rc, fw_error, fw_error_to_str(fw_error));
+        error_report("%s: SNP_LAUNCH_START ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, rc, errno, fw_error, fw_error_to_str(fw_error));
         return 1;
     }
 
@@ -1164,8 +1164,8 @@ sev_launch_start(SevGuestState *sev_guest)
     trace_kvm_sev_launch_start(start.policy, session, dh_cert);
     rc = sev_ioctl(sev_common->sev_fd, KVM_SEV_LAUNCH_START, &start, &fw_error);
     if (rc < 0) {
-        error_report("%s: LAUNCH_START ret=%d fw_error=%d '%s'",
-                __func__, ret, fw_error, fw_error_to_str(fw_error));
+        error_report("%s: LAUNCH_START ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, fw_error, fw_error_to_str(fw_error));
         goto out;
     }
 
@@ -1250,8 +1250,8 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, SevLaunchUpdateData *data
                     KVM_SEV_SNP_LAUNCH_UPDATE,
                     &update, &fw_error);
     if (ret) {
-        error_report("%s: SNP_LAUNCH_UPDATE ret=%d fw_error=%d '%s'",
-                __func__, ret, fw_error, fw_error_to_str(fw_error));
+        error_report("%s: SNP_LAUNCH_UPDATE ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, fw_error, fw_error_to_str(fw_error));
 
         if (data->type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
             sev_snp_cpuid_report_mismatches(&snp_cpuid_info, data->hva);
@@ -1286,8 +1286,8 @@ sev_launch_update_data(SevGuestState *sev_guest, uint8_t *addr, uint64_t len)
     ret = sev_ioctl(SEV_COMMON(sev_guest)->sev_fd, KVM_SEV_LAUNCH_UPDATE_DATA,
                     &update, &fw_error);
     if (ret) {
-        error_report("%s: LAUNCH_UPDATE ret=%d fw_error=%d '%s'",
-                __func__, ret, fw_error, fw_error_to_str(fw_error));
+        error_report("%s: LAUNCH_UPDATE ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, fw_error, fw_error_to_str(fw_error));
     }
 
     return ret;
@@ -1301,8 +1301,8 @@ sev_launch_update_vmsa(SevGuestState *sev_guest)
     ret = sev_ioctl(SEV_COMMON(sev_guest)->sev_fd, KVM_SEV_LAUNCH_UPDATE_VMSA,
                     NULL, &fw_error);
     if (ret) {
-        error_report("%s: LAUNCH_UPDATE_VMSA ret=%d fw_error=%d '%s'",
-                __func__, ret, fw_error, fw_error_to_str(fw_error));
+        error_report("%s: LAUNCH_UPDATE_VMSA ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, fw_error, fw_error_to_str(fw_error));
     }
 
     return ret;
@@ -1333,8 +1333,8 @@ sev_launch_get_measure(Notifier *notifier, void *unused)
     ret = sev_ioctl(sev_common->sev_fd, KVM_SEV_LAUNCH_MEASURE,
                     &measurement, &error);
     if (!measurement.len) {
-        error_report("%s: LAUNCH_MEASURE ret=%d fw_error=%d '%s'",
-                     __func__, ret, error, fw_error_to_str(errno));
+        error_report("%s: LAUNCH_MEASURE ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, error, fw_error_to_str(errno));
         return;
     }
 
@@ -1345,8 +1345,8 @@ sev_launch_get_measure(Notifier *notifier, void *unused)
     ret = sev_ioctl(sev_common->sev_fd, KVM_SEV_LAUNCH_MEASURE,
                     &measurement, &error);
     if (ret) {
-        error_report("%s: LAUNCH_MEASURE ret=%d fw_error=%d '%s'",
-                     __func__, ret, error, fw_error_to_str(errno));
+        error_report("%s: LAUNCH_MEASURE ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, error, fw_error_to_str(errno));
         return;
     }
 
@@ -1401,8 +1401,8 @@ sev_launch_finish(SevGuestState *sev_guest)
     ret = sev_ioctl(SEV_COMMON(sev_guest)->sev_fd, KVM_SEV_LAUNCH_FINISH, 0,
                     &error);
     if (ret) {
-        error_report("%s: LAUNCH_FINISH ret=%d fw_error=%d '%s'",
-                     __func__, ret, error, fw_error_to_str(error));
+        error_report("%s: LAUNCH_FINISH ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, error, fw_error_to_str(error));
         exit(1);
     }
 
@@ -1619,8 +1619,8 @@ sev_snp_launch_finish(SevSnpGuestState *sev_snp)
     ret = sev_ioctl(SEV_COMMON(sev_snp)->sev_fd, KVM_SEV_SNP_LAUNCH_FINISH,
                     finish, &error);
     if (ret) {
-        error_report("%s: SNP_LAUNCH_FINISH ret=%d fw_error=%d '%s'",
-                     __func__, ret, error, fw_error_to_str(error));
+        error_report("%s: SNP_LAUNCH_FINISH ret=%d errno=%d fw_error=%d '%s'",
+                     __func__, ret, errno, error, fw_error_to_str(error));
         exit(1);
     }
 
@@ -1716,9 +1716,9 @@ int sev_kvm_init(MachineState *ms, Error **errp)
     ret = sev_platform_ioctl(sev_common->sev_fd, SEV_PLATFORM_STATUS, &status,
                              &fw_error);
     if (ret) {
-        error_setg(errp, "%s: failed to get platform status ret=%d "
-                   "fw_error='%d: %s'", __func__, ret, fw_error,
-                   fw_error_to_str(fw_error));
+        error_setg_errno(errp, errno, "%s: failed to get platform status ret=%d "
+                         "fw_error='%d: %s'", __func__, ret, fw_error,
+                         fw_error_to_str(fw_error));
         goto err;
     }
     sev_common->build_id = status.build;
@@ -1759,8 +1759,8 @@ int sev_kvm_init(MachineState *ms, Error **errp)
 
     ret = sev_ioctl(sev_common->sev_fd, cmd, init_args, &fw_error);
     if (ret) {
-        error_setg(errp, "%s: failed to initialize ret=%d fw_error=%d '%s'",
-                   __func__, ret, fw_error, fw_error_to_str(fw_error));
+        error_setg_errno(errp, errno, "%s: failed to initialize ret=%d fw_error=%d '%s'",
+                         __func__, ret, fw_error, fw_error_to_str(fw_error));
         goto err;
     }
 
@@ -1883,8 +1883,8 @@ int sev_inject_launch_secret(const char *packet_hdr, const char *secret,
     ret = sev_ioctl(sev_common->sev_fd, KVM_SEV_LAUNCH_SECRET,
                     &input, &error);
     if (ret) {
-        error_setg(errp, "SEV: failed to inject secret ret=%d fw_error=%d '%s'",
-                     ret, error, fw_error_to_str(error));
+        error_setg_errno(errp, errno, "SEV: failed to inject secret ret=%d fw_error=%d '%s'",
+                         ret, error, fw_error_to_str(error));
         return ret;
     }
 
