@@ -227,7 +227,7 @@ static int
 sev_ioctl(int fd, int cmd, void *data, int *error)
 {
     int r;
-    struct kvm_sev_cmd input;
+    struct kvm_sev_cmd input = {};
 
     memset(&input, 0x0, sizeof(input));
 
@@ -248,7 +248,7 @@ static int
 sev_platform_ioctl(int fd, int cmd, void *data, int *error)
 {
     int r;
-    struct sev_issue_cmd arg;
+    struct sev_issue_cmd arg = {};
 
     arg.cmd = cmd;
     arg.data = (unsigned long)data;
