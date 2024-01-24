@@ -260,9 +260,9 @@ void x86_firmware_configure(hwaddr gpa, void *ptr, int size)
     pc_system_parse_ovmf_flash(ptr, size);
 
     if (sev_enabled()) {
-        ret = sev_es_save_reset_vector(ptr, size);
+        ret = sev_es_save_reset_state(ptr, size);
         if (ret) {
-            error_report("failed to locate and/or save reset vector");
+            error_report("failed to locate and/or save reset state");
             exit(1);
         }
 
