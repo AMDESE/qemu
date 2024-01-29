@@ -483,6 +483,22 @@ static inline void amdvi_handle_pprtail_write(AMDVIState *s)
     amd_viommu_mmio_write(s, AMDVI_MMIO_PPR_TAIL, 8, val);
 }
 
+static inline void amdvi_handle_xt_event_int_write(AMDVIState *s)
+{
+    uint64_t val = amdvi_readq(s, AMDVI_MMIO_XT_EVENT_INT);
+
+fprintf(stderr, "DEBUG: %s\n", __func__);
+    amd_viommu_mmio_write(s, AMDVI_MMIO_XT_EVENT_INT, 8, val);
+}
+
+static inline void amdvi_handle_xt_ppr_int_write(AMDVIState *s)
+{
+    uint64_t val = amdvi_readq(s, AMDVI_MMIO_XT_PPR_INT);
+
+fprintf(stderr, "DEBUG: %s\n", __func__);
+    amd_viommu_mmio_write(s, AMDVI_MMIO_XT_PPR_INT, 8, val);
+}
+
 /* FIXME: something might go wrong if System Software writes in chunks
  * of one byte but linux writes in chunks of 4 bytes so currently it
  * works correctly with linux but will definitely be busted if software
@@ -720,6 +736,7 @@ static void amdvi_reset(DeviceState *dev)
 }
 
 #define FEATURE_PPR            (1ULL << 1)
+#define FEATURE_XT             (1ULL << 2)
 #define FEATURE_GT             (1ULL << 4)
 #define FEATURE_GIO            (1ULL << 48)
 
@@ -735,8 +752,9 @@ static void amdvi_reset(DeviceState *dev)
 #define FEATURE_PASMAX_MASK    0x1FULL
 #define FEATURE_PASMAX_16      ((0xFULL & FEATURE_PASMAX_MASK) << FEATURE_PASMAX_SHIFT)
 
-#define SUPPORTED_EFR	(FEATURE_GT | FEATURE_PPR | FEATURE_GIO | FEATURE_GATS_5LEVEL | \
-			 FEATURE_GLX_3LEVEL | FEATURE_PASMAX_16)
+#define SUPPORTED_EFR	(FEATURE_GT | FEATURE_XT | FEATURE_PPR | \
+			 FEATURE_GIO | FEATURE_GATS_5LEVEL | \
+			 FEATURE_GLX_2LEVEL | FEATURE_PASMAX_16)
 
 static bool amdvi_get_hw_info(AMDVIState *s, IOMMUFDDevice *idev)
 {
