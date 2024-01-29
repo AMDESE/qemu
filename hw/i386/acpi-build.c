@@ -2503,6 +2503,7 @@ void build_ivrs(GArray *table_data, BIOSLinker *linker, const char *oem_id,
             s = AMD_IOMMU_DEVICE(iommu);
 
             efr = (1UL << 1) |  /* PPRSup */
+                  (1UL << 2) |  /* XTSup */
                   (1UL << 4) |  /* GTSup */
                   (2UL << 10) | /* HATSup */
                   (2UL << 12) ; /* GATSup*/
