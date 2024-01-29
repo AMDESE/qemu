@@ -431,20 +431,24 @@ struct iommu_hwpt_vtd_s1 {
  * struct iommu_hwpt_amd_v2 - AMD IOMMU specific user-managed
  *                            v2 I/O page table data
  * @gcr3: GCR3 guest physical ddress
+ * @flags.glx: GCR3 table levels
+ * @flags.giov: GIOV mode
+ * @flags.guest_paging_mode: Guest v2 page table paging mode
+ * @flags.reserved : Must be 0
  * @gid: Guest ID
- * @iommu_id: IOMMU host device ID
- * @glx: GCR3 table levels
- * @gdev_id: Guest device ID
+ * @gdom_id: Guest domain ID
+ * @__reserved: Must be 0
  */
 struct iommu_hwpt_amd_v2 {
 	__aligned_u64 gcr3;
-	__aligned_u64 gcr3_va;
-	__u32 gid;
-	__u32 iommu_id;
-	__u16 glx;
-	__u16 guest_paging_mode;
-	__u16 gdev_id;
-	__u16 __reserved;
+	struct {
+		__aligned_u64 glx  : 1,
+			      giov : 1,
+			      guest_paging_mode : 2,
+			      reserved : 60;
+	} flags;
+	__u32 gdom_id;
+	__u32 __reserved;
 };
 
 /**
@@ -452,12 +456,12 @@ struct iommu_hwpt_amd_v2 {
  * @IOMMU_HWPT_DATA_NONE: no data
  * @IOMMU_HWPT_DATA_VTD_S1: Intel VT-d stage-1 page table
  * @IOMMU_HWPT_DATA_ARM_SMMUV3: ARM SMMUv3 Context Descriptor Table
- * @IOMMU_HWPT_DATA_AMD_V2: AMD IOMMUv2 Context Descriptor Table
+ * @IOMMU_HWPT_DATA_AMD_V2: AMD IOMMUv2 page table
  */
 enum iommu_hwpt_data_type {
 	IOMMU_HWPT_DATA_NONE,
 	IOMMU_HWPT_DATA_VTD_S1,
-	IOMMU_HWPT_DATA_ARM_SMMUV3,
+//	IOMMU_HWPT_DATA_ARM_SMMUV3,
 	IOMMU_HWPT_DATA_AMD_V2,
 };
 
@@ -566,10 +570,17 @@ struct iommu_hw_info_arm_smmuv3 {
  *
  * @efr : Value of AMD IOMMU Extended Feature Register (EFR)
  * @efr2: Value of AMD IOMMU Extended Feature 2 Register (EFR2)
+ *
+ * Please See description of these registers in the following sections of
+ * the AMD I/O Virtualization Technology (IOMMU) Specification.
+ * (https://www.amd.com/content/dam/amd/en/documents/processor-tech-docs/specifications/48882_IOMMU.pdf)
+ *
+ * - MMIO Offset 0030h IOMMU Extended Feature Register
+ * - MMIO Offset 01A0h IOMMU Extended Feature 2 Register
  */
 struct iommu_hw_info_amd {
-	__u64 efr;
-	__u64 efr2;
+	__aligned_u64 efr;
+	__aligned_u64 efr2;
 };
 
 /**
@@ -583,7 +594,7 @@ struct iommu_hw_info_amd {
 enum iommu_hw_info_type {
 	IOMMU_HW_INFO_TYPE_NONE,
 	IOMMU_HW_INFO_TYPE_INTEL_VTD,
-	IOMMU_HW_INFO_TYPE_ARM_SMMUV3,
+//	IOMMU_HW_INFO_TYPE_ARM_SMMUV3,
 	IOMMU_HW_INFO_TYPE_AMD,
 };
 
