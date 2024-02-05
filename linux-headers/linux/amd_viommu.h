@@ -25,6 +25,7 @@ enum iommufd_viommu_cmd {
 	IOMMUFD_CMD_DEVICE_ATTACH,
 	IOMMUFD_CMD_DEVICE_DETACH,
 	IOMMUFD_CMD_MMIO_ACCESS,
+	IOMMUFD_CMD_CMDBUF_UPDATE,
 };
 
 /**
@@ -95,5 +96,26 @@ struct amd_viommu_mmio_data {
 };
 
 #define VIOMMU_MMIO_ACCESS	_IO(IOMMUFD_TYPE, IOMMUFD_CMD_MMIO_ACCESS)
+
+/**
+ * struct amd_viommu_cmdbuf_data - ioctl(VIOMMU_CMDBUF_UPDATE)
+ * @size: sizeof(struct amd_viommu_cmdbuf_data)
+ * @iommu_id: PCI device ID of the AMD IOMMU instance
+ * @gid: guest ID
+ * @gcmdbuf_size: guest command buffer size
+ * @hva: host virtual address for the guest command buffer
+ *
+ * Trap guest command buffer initialization to setup HW-vIOMMU command buffer
+ * for the specified guest.
+ */
+struct amd_viommu_cmdbuf_data {
+	__u32	size;
+	__u32	iommu_id;
+	__u32	gid;
+	__u32	cmdbuf_size;
+	__u64	hva;
+};
+
+#define VIOMMU_CMDBUF_UPDATE	_IO(IOMMUFD_TYPE, IOMMUFD_CMD_CMDBUF_UPDATE)
 
 #endif

@@ -54,6 +54,8 @@ static int amd_viommu_ioctl_init(AMDVIState *s, Error **errp);
 static int amd_viommu_mmio_write(AMDVIState *s, __u32 offset,
                                  __u32 size, __u64 value);
 
+static int amd_viommu_cmdbuf_update(AMDVIState *s, __u64 val);
+
 static int amd_viommu_mmio_read(AMDVIState *s, __u32 offset,
                                 __u32 size, __u64 *value);
 
@@ -106,6 +108,25 @@ static int amd_viommu_iommu_uninit(AMDVIState *s)
 
     ret = ioctl(s->iommufd->fd, VIOMMU_IOMMU_DESTROY, &arg);
     return ret;
+}
+
+static int amd_viommu_cmdbuf_update(AMDVIState *s, __u64 val)
+{
+    struct amd_viommu_cmdbuf_data arg = {
+        .size = sizeof(arg),
+    };
+    uint64_t gpa = val & 0xFFFFFFFFFF000ULL;
+    void *hva = gpa2hva(gpa, 0x1000);
+    int size = (1 << ((val >> 56) & 0xF)) * 16;
+    uint16_t bdf = PCI_BUILD_BDF((s->iommu.host.bus),
+				PCI_DEVFN(s->iommu.host.slot,
+					  s->iommu.host.function));
+
+    arg.iommu_id = bdf;
+    arg.gid = s->gid;
+    arg.cmdbuf_size = size;
+    arg.hva = (__u64) hva;
+    return ioctl(s->iommufd->fd , VIOMMU_CMDBUF_UPDATE, &arg);
 }
 
 static int amd_viommu_mmio_write(AMDVIState *s, __u32 offset,
@@ -424,6 +445,7 @@ static inline void amdvi_handle_cmdbase_write(AMDVIState *s)
 {
     uint64_t val = amdvi_readq(s, AMDVI_MMIO_COMMAND_BASE);
 
+    amd_viommu_cmdbuf_update(s, val);
     amd_viommu_mmio_write(s, AMDVI_MMIO_COMMAND_BASE, 8, val);
 }
 
