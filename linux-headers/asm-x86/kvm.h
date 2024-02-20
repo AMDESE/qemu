@@ -800,10 +800,10 @@ struct kvm_sev_snp_launch_start {
 #define KVM_SEV_SNP_PAGE_TYPE_CPUID		0x6
 
 struct kvm_sev_snp_launch_update {
-	__u64 start_gfn;
+	__u64 gfn_start;
 	__u64 uaddr;
 	__u32 len;
-	__u8 page_type;
+	__u8 type;
 };
 
 #define KVM_SEV_SNP_ID_BLOCK_SIZE	96
