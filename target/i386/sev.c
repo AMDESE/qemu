@@ -1240,12 +1240,19 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, SevLaunchUpdateData *data
     }
 
     update.uaddr = (__u64)(unsigned long)data->hva;
-    update.start_gfn = data->gpa >> TARGET_PAGE_BITS;
+    update.gfn_start = data->gpa >> TARGET_PAGE_BITS;
     update.len = data->len;
-    update.page_type = data->type;
+    update.type = data->type;
 
     trace_kvm_sev_snp_launch_update(data->hva, data->gpa, data->len,
                                     snp_page_type_to_str(data->type));
+
+    ret = kvm_set_memory_attributes_private(data->gpa, data->len);
+    if (ret) {
+        error_report("SEV-SNP: failed to configure initial private guest memory");
+        goto out;
+    }
+
     ret = sev_ioctl(SEV_COMMON(sev_snp_guest)->sev_fd,
                     KVM_SEV_SNP_LAUNCH_UPDATE,
                     &update, &fw_error);
@@ -1257,13 +1264,6 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest, SevLaunchUpdateData *data
             sev_snp_cpuid_report_mismatches(&snp_cpuid_info, data->hva);
             error_report("SEV-SNP: failed update CPUID page");
         }
-
-        goto out;
-    }
-
-    ret = kvm_convert_memory(data->gpa, data->len, true);
-    if (ret) {
-        error_report("SEV-SNP: failed to configure initial private guest memory");
     }
 
 out:
