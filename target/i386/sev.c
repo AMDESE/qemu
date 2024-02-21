@@ -1212,7 +1212,6 @@ snp_page_type_to_str(int type)
 {
     switch (type) {
     case KVM_SEV_SNP_PAGE_TYPE_NORMAL: return "Normal";
-    case KVM_SEV_SNP_PAGE_TYPE_VMSA: return "Vmsa";
     case KVM_SEV_SNP_PAGE_TYPE_ZERO: return "Zero";
     case KVM_SEV_SNP_PAGE_TYPE_UNMEASURED: return "Unmeasured";
     case KVM_SEV_SNP_PAGE_TYPE_SECRETS: return "Secrets";
