@@ -117,6 +117,7 @@ void qemu_spice_wakeup(SimpleSpiceDisplay *ssd)
     spice_qxl_wakeup(&ssd->qxl);
 }
 
+/* Called with ssd->lock held.  */
 static void qemu_spice_create_one_update(SimpleSpiceDisplay *ssd,
                                          QXLRect *rect)
 {
@@ -185,6 +186,7 @@ static void qemu_spice_create_one_update(SimpleSpiceDisplay *ssd,
     QTAILQ_INSERT_TAIL(&ssd->updates, update, next);
 }
 
+/* Called with ssd->lock held.  */
 static void qemu_spice_create_update(SimpleSpiceDisplay *ssd)
 {
     static const int blksize = 32;
@@ -367,6 +369,7 @@ void qemu_spice_display_init_common(SimpleSpiceDisplay *ssd)
 
 /* display listener callbacks */
 
+/* Called with ssd->lock held.  */
 void qemu_spice_display_update(SimpleSpiceDisplay *ssd,
                                int x, int y, int w, int h)
 {
@@ -390,6 +393,7 @@ void qemu_spice_display_switch(SimpleSpiceDisplay *ssd,
     SimpleSpiceUpdate *update;
     bool need_destroy;
 
+    qemu_mutex_lock(&ssd->lock);
     if (ssd->surface &&
         surface_width(surface) == pixman_image_get_width(ssd->surface) &&
         surface_height(surface) == pixman_image_get_height(ssd->surface) &&
@@ -399,14 +403,13 @@ void qemu_spice_display_switch(SimpleSpiceDisplay *ssd,
                                          surface_width(surface),
                                          surface_height(surface),
                                          true);
-        qemu_mutex_lock(&ssd->lock);
         ssd->ds = surface;
         pixman_image_unref(ssd->surface);
         ssd->surface = pixman_image_ref(ssd->ds->image);
-        qemu_mutex_unlock(&ssd->lock);
         qemu_spice_display_update(ssd, 0, 0,
                                   surface_width(surface),
                                   surface_height(surface));
+        qemu_mutex_unlock(&ssd->lock);
         return;
     }
 
@@ -424,7 +427,6 @@ void qemu_spice_display_switch(SimpleSpiceDisplay *ssd,
         ssd->mirror = NULL;
     }
 
-    qemu_mutex_lock(&ssd->lock);
     need_destroy = (ssd->ds != NULL);
     ssd->ds = surface;
     while ((update = QTAILQ_FIRST(&ssd->updates)) != NULL) {
@@ -442,10 +444,10 @@ void qemu_spice_display_switch(SimpleSpiceDisplay *ssd,
         qemu_spice_create_host_primary(ssd);
     }
 
+    qemu_mutex_lock(&ssd->lock);
     memset(&ssd->dirty, 0, sizeof(ssd->dirty));
     ssd->notify++;
 
-    qemu_mutex_lock(&ssd->lock);
     if (ssd->cursor) {
         g_free(ssd->ptr_define);
         ssd->ptr_define = qemu_spice_create_cursor_update(ssd, ssd->cursor, 0);
@@ -730,6 +732,8 @@ static void display_update(DisplayChangeListener *dcl,
                            int x, int y, int w, int h)
 {
     SimpleSpiceDisplay *ssd = container_of(dcl, SimpleSpiceDisplay, dcl);
+
+    QEMU_LOCK_GUARD(&ssd->lock);
     qemu_spice_display_update(ssd, x, y, w, h);
 }
 
