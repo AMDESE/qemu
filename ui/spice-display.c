@@ -486,6 +486,7 @@ void qemu_spice_cursor_refresh_bh(void *opaque)
 
 void qemu_spice_display_refresh(SimpleSpiceDisplay *ssd)
 {
+    bool wakeup = false;
     graphic_hw_update(ssd->dcl.con);
 
     WITH_QEMU_LOCK_GUARD(&ssd->lock) {
@@ -493,11 +494,16 @@ void qemu_spice_display_refresh(SimpleSpiceDisplay *ssd)
             qemu_spice_create_update(ssd);
             ssd->notify++;
         }
+
+        trace_qemu_spice_display_refresh(ssd->qxl.id, ssd->notify);
+
+        if (ssd->notify) {
+            ssd->notify = 0;
+            wakeup = true;
+        }
     }
 
-    trace_qemu_spice_display_refresh(ssd->qxl.id, ssd->notify);
-    if (ssd->notify) {
-        ssd->notify = 0;
+    if (wakeup) {
         qemu_spice_wakeup(ssd);
     }
 }
