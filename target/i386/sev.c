@@ -975,6 +975,7 @@ sev_snp_launch_finish(SevSnpGuestState *sev_snp)
         exit(1);
     }
 
+    kvm_mark_guest_state_protected();
     sev_set_guest_state(SEV_COMMON(sev_snp), SEV_STATE_RUNNING);
 
     /* add migration blocker */
