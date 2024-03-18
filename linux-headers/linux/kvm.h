@@ -1865,6 +1865,8 @@ enum sev_cmd_id {
 	/* Guest Migration Extension */
 	KVM_SEV_SEND_CANCEL,
 
+	KVM_SEV_INIT2,
+
 	KVM_SEV_NR_MAX,
 };
 
