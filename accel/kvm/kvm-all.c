@@ -2912,8 +2912,8 @@ static int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
     void *addr;
     int ret = -1;
 
-    if (!QEMU_PTR_IS_ALIGNED(start, qemu_host_page_size) ||
-        !QEMU_PTR_IS_ALIGNED(size, qemu_host_page_size)) {
+    if (!QEMU_PTR_IS_ALIGNED(start, qemu_real_host_page_size()) ||
+        !QEMU_PTR_IS_ALIGNED(size, qemu_real_host_page_size())) {
         return -1;
     }
 
@@ -2943,7 +2943,7 @@ static int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
         rb = qemu_ram_block_from_host(addr, false, &offset);
 
         if (to_private) {
-            if (rb->page_size != qemu_host_page_size) {
+            if (rb->page_size != qemu_real_host_page_size()) {
                 /*
                 * shared memory is back'ed by  hugetlb, which is supposed to be
                 * pre-allocated and doesn't need to be discarded
