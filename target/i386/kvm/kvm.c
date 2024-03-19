@@ -164,6 +164,7 @@ static int kvm_get_one_msr(X86CPU *cpu, int index, uint64_t *value);
 
 static const char *vm_type_name[] = {
     [KVM_X86_DEFAULT_VM] = "default",
+    [KVM_X86_SNP_VM] = "snp"
 };
 
 bool kvm_is_vm_type_supported(int type)

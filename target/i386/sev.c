@@ -853,14 +853,20 @@ sev_vm_state_change(void *opaque, bool running, RunState state)
 static int sev_kvm_type(X86ConfidentialGuest *cg)
 {
     SevCommonState *sev_common = SEV_COMMON(cg);
-    SevGuestState *sev_guest = SEV_GUEST(sev_common);
     int kvm_type;
 
     if (sev_common->kvm_type != -1) {
         goto out;
     }
 
-    kvm_type = (sev_guest->policy & SEV_POLICY_ES) ? KVM_X86_SEV_ES_VM : KVM_X86_SEV_VM;
+    if (sev_snp_enabled()) {
+        kvm_type = KVM_X86_SNP_VM;
+    } else if (sev_es_enabled()) {
+        kvm_type = KVM_X86_SEV_ES_VM;
+    } else {
+        kvm_type = KVM_X86_SEV_VM;
+    }
+
     if (kvm_is_vm_type_supported(kvm_type)) {
         sev_common->kvm_type = kvm_type;
     } else {
