@@ -888,10 +888,18 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
     uint32_t host_cbitpos;
     struct sev_user_data_status status = {};
 
-    ret = ram_block_discard_disable(true);
-    if (ret) {
-        error_report("%s: cannot disable RAM discard", __func__);
-        return -1;
+    /*
+     * SEV/SEV-ES rely on pinned memory to back guest RAM so discarding
+     * isn't actually possible. With SNP, only guest_memfd pages are used
+     * for private guest memory, so discarding of shared memory is still
+     * possible..
+     */
+    if (!sev_snp_enabled()) {
+        ret = ram_block_discard_disable(true);
+        if (ret) {
+            error_report("%s: cannot disable RAM discard", __func__);
+            return -1;
+        }
     }
 
     sev_common->state = SEV_STATE_UNINIT;
