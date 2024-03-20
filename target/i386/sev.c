@@ -1560,6 +1560,18 @@ out_unmap:
     return 0;
 }
 
+static int kvm_handle_vmgexit_psc_msr_protocol(__u64 gpa, __u8 op, __u32 *psc_ret)
+{
+    int ret;
+
+    ret = kvm_convert_memory(gpa, TARGET_PAGE_SIZE,
+                             op == KVM_USER_VMGEXIT_PSC_MSR_OP_PRIVATE);
+
+    *psc_ret = ret;
+
+    return ret;
+}
+
 int kvm_handle_vmgexit(struct kvm_run *run)
 {
     int ret;
@@ -1567,6 +1579,10 @@ int kvm_handle_vmgexit(struct kvm_run *run)
     if (run->vmgexit.type == KVM_USER_VMGEXIT_PSC) {
         ret = kvm_handle_vmgexit_psc(run->vmgexit.psc.shared_gpa,
                                      &run->vmgexit.psc.ret);
+    } else if (run->vmgexit.type == KVM_USER_VMGEXIT_PSC_MSR) {
+        ret = kvm_handle_vmgexit_psc_msr_protocol(run->vmgexit.psc_msr.gpa,
+                                                  run->vmgexit.psc_msr.op,
+                                                  &run->vmgexit.psc_msr.ret);
     } else {
         warn_report("KVM: unknown vmgexit type: %d", run->vmgexit.type);
         ret = -1;
