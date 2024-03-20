@@ -881,6 +881,7 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
     SevCommonState *sev_common = SEV_COMMON(cgs);
     MachineState *ms = MACHINE(qdev_get_machine());
+    X86MachineState *x86ms = X86_MACHINE(ms);
     char *devname;
     int ret, fw_error, cmd;
     uint32_t ebx;
@@ -1003,6 +1004,13 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 
     if (sev_snp_enabled()) {
         ms->require_guest_memfd = true;
+
+        if (x86ms->smm == ON_OFF_AUTO_AUTO) {
+            x86ms->smm = ON_OFF_AUTO_OFF;
+        } else if (x86ms->smm == ON_OFF_AUTO_ON) {
+            error_report("SEV-SNP does not support SMM.");
+            goto err;
+        }
     }
 
     qemu_add_vm_change_state_handler(sev_vm_state_change, sev_common);
