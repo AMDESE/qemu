@@ -880,6 +880,7 @@ out:
 static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
     SevCommonState *sev_common = SEV_COMMON(cgs);
+    MachineState *ms = MACHINE(qdev_get_machine());
     char *devname;
     int ret, fw_error, cmd;
     uint32_t ebx;
@@ -998,6 +999,10 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
          * the notifier for SNP in favor of using guest attestation instead.
          */
         qemu_add_machine_init_done_notifier(&sev_machine_done_notify);
+    }
+
+    if (sev_snp_enabled()) {
+        ms->require_guest_memfd = true;
     }
 
     qemu_add_vm_change_state_handler(sev_vm_state_change, sev_common);
