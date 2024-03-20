@@ -2962,10 +2962,14 @@ static int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
                 */
                 return 0;
             } else {
-                ret = ram_block_discard_range(rb, offset, size);
+                ret = ram_block_discard_is_disabled()
+                      ? ram_block_discard_range(rb, offset, size)
+                      : 0;
             }
         } else {
-            ret = ram_block_discard_guest_memfd_range(rb, offset, size);
+            ret = ram_block_discard_is_disabled()
+                  ? ram_block_discard_guest_memfd_range(rb, offset, size)
+                  : 0;
         }
     } else {
         error_report("Convert non guest_memfd backed memory region "
