@@ -407,6 +407,37 @@ struct IOMMUFDVdev *iommufd_backend_alloc_vdev(HostIOMMUDeviceIOMMUFD *idev,
     return vdev;
 }
 
+int iommufd_viommu_invalidate_cache(IOMMUFDBackend *be, uint32_t viommu_id,
+                                    uint32_t data_type, uint32_t entry_len,
+                                    uint32_t *entry_num, void *data_ptr)
+{
+    int ret, fd = be->fd;
+    struct iommu_hwpt_invalidate cache = {
+        .size = sizeof(cache),
+        .hwpt_id = viommu_id,
+        .data_type = data_type,
+        .entry_len = entry_len,
+        .entry_num = *entry_num,
+        .data_uptr = (uint64_t)data_ptr,
+    };
+
+    ret = ioctl(fd, IOMMU_HWPT_INVALIDATE, &cache);
+
+    trace_iommufd_viommu_invalidate_cache(fd, viommu_id, data_type,
+                                          entry_len, *entry_num,
+                                          cache.entry_num,
+                                          (uint64_t)data_ptr, ret);
+    if (ret) {
+        *entry_num = cache.entry_num;
+        error_report("IOMMU_VIOMMU_INVALIDATE failed: %s", strerror(errno));
+        ret = -errno;
+    } else {
+        g_assert(*entry_num == cache.entry_num);
+    }
+
+    return ret;
+}
+
 bool host_iommu_device_iommufd_attach_hwpt(HostIOMMUDeviceIOMMUFD *idev,
                                            uint32_t hwpt_id, Error **errp)
 {

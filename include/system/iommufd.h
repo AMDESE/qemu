@@ -74,6 +74,9 @@ struct IOMMUFDViommu *iommufd_backend_alloc_viommu(IOMMUFDBackend *be,
                                                    uint32_t dev_id,
                                                    uint32_t viommu_type,
                                                    uint32_t hwpt_id);
+int iommufd_viommu_invalidate_cache(IOMMUFDBackend *be, uint32_t viommu_id,
+                                    uint32_t data_type, uint32_t entry_len,
+                                    uint32_t *entry_num, void *data_ptr);
 
 #define TYPE_HOST_IOMMU_DEVICE_IOMMUFD TYPE_HOST_IOMMU_DEVICE "-iommufd"
 OBJECT_DECLARE_TYPE(HostIOMMUDeviceIOMMUFD, HostIOMMUDeviceIOMMUFDClass,
