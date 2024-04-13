@@ -376,6 +376,37 @@ struct IOMMUFDViommu *iommufd_backend_alloc_viommu(IOMMUFDBackend *be,
     return viommu;
 }
 
+struct IOMMUFDVdev *iommufd_backend_alloc_vdev(HostIOMMUDeviceIOMMUFD *idev,
+                                               IOMMUFDViommu *viommu,
+                                               uint64_t virt_id)
+{
+    int ret, fd = viommu->iommufd->fd;
+    struct IOMMUFDVdev *vdev = g_malloc(sizeof(*vdev));
+    struct iommu_vdevice_alloc alloc_vdev = {
+        .size = sizeof(alloc_vdev),
+        .viommu_id = viommu->viommu_id,
+        .dev_id = idev->devid,
+        .virt_id = virt_id,
+    };
+
+    ret = ioctl(fd, IOMMU_VDEVICE_ALLOC, &alloc_vdev);
+
+    trace_iommufd_backend_alloc_vdev(fd, idev->devid, viommu->viommu_id, virt_id,
+                                     alloc_vdev.out_vdevice_id, ret);
+
+    if (ret) {
+        error_report("IOMMU_VDEVICE_ALLOC failed: %s", strerror(errno));
+        g_free(vdev);
+        return NULL;
+    }
+
+    vdev->idev = idev;
+    vdev->viommu = viommu;
+    vdev->virt_id = virt_id;
+    vdev->vdev_id = alloc_vdev.out_vdevice_id;
+    return vdev;
+}
+
 bool host_iommu_device_iommufd_attach_hwpt(HostIOMMUDeviceIOMMUFD *idev,
                                            uint32_t hwpt_id, Error **errp)
 {
