@@ -126,4 +126,15 @@ bool host_iommu_device_iommufd_attach_hwpt(HostIOMMUDeviceIOMMUFD *idev,
                                            uint32_t hwpt_id, Error **errp);
 bool host_iommu_device_iommufd_detach_hwpt(HostIOMMUDeviceIOMMUFD *idev,
                                            Error **errp);
+
+typedef struct IOMMUFDVdev {
+    HostIOMMUDeviceIOMMUFD *idev;
+    IOMMUFDViommu *viommu;
+    uint32_t vdev_id;
+    uint64_t virt_id;
+} IOMMUFDVdev;
+
+struct IOMMUFDVdev *iommufd_backend_alloc_vdev(HostIOMMUDeviceIOMMUFD *idev,
+                                               IOMMUFDViommu *viommu,
+                                               uint64_t virt_id);
 #endif
