@@ -341,6 +341,41 @@ int iommufd_backend_invalidate_cache(IOMMUFDBackend *be, uint32_t hwpt_id,
     return ret;
 }
 
+struct IOMMUFDViommu *iommufd_backend_alloc_viommu(IOMMUFDBackend *be,
+                                                   uint32_t dev_id,
+                                                   uint32_t viommu_type,
+                                                   uint32_t hwpt_id)
+{
+    int ret, fd = be->fd;
+    struct IOMMUFDViommu *viommu = g_malloc(sizeof(*viommu));
+    struct iommu_viommu_alloc alloc_viommu = {
+        .size = sizeof(alloc_viommu),
+        .type = viommu_type,
+        .dev_id = dev_id,
+        .hwpt_id = hwpt_id,
+    };
+
+    if (!viommu) {
+        error_report("failed to allocate viommu object");
+        return NULL;
+    }
+
+    ret = ioctl(fd, IOMMU_VIOMMU_ALLOC, &alloc_viommu);
+
+    trace_iommufd_backend_alloc_viommu(fd, viommu_type, dev_id, hwpt_id,
+                                       alloc_viommu.out_viommu_id, ret);
+    if (ret) {
+        error_report("IOMMU_VIOMMU_ALLOC failed: %s", strerror(errno));
+        g_free(viommu);
+        return NULL;
+    }
+
+    viommu->viommu_id = alloc_viommu.out_viommu_id;
+    viommu->s2_hwpt_id = hwpt_id;
+    viommu->iommufd = be;
+    return viommu;
+}
+
 bool host_iommu_device_iommufd_attach_hwpt(HostIOMMUDeviceIOMMUFD *idev,
                                            uint32_t hwpt_id, Error **errp)
 {
