@@ -370,6 +370,10 @@ static int hiod_iommufd_get_cap(HostIOMMUDevice *hiod, int cap, Error **errp)
         return caps->type;
     case HOST_IOMMU_DEVICE_CAP_AW_BITS:
         return vfio_device_get_aw_bits(hiod->agent);
+    case HOST_IOMMU_DEVICE_CAP_NESTING:
+        return caps->nesting;
+    case HOST_IOMMU_DEVICE_CAP_FS1GP:
+        return caps->fs1gp;
     default:
         error_setg(errp, "%s: unsupported capability %x", hiod->name, cap);
         return -EINVAL;
