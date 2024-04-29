@@ -1034,6 +1034,13 @@
 #     firmware.  Set this to true to disable the use of VCEK.
 #     (default: false) (since: 9.1)
 #
+# @secure-tsc: true if secure tsc is to be enabled in a SNP guest.
+#              (default: false) (since: 9.3)
+#
+# @stsc-freq: Secure TSC frequency in HZ to be provided to Secure
+#     TSC enabled SNP guest.
+#     (default: 0) (since: 9.3)
+#
 # Since: 9.1
 ##
 { 'struct': 'SevSnpGuestProperties',
@@ -1045,7 +1052,9 @@
             '*id-auth': 'str',
             '*author-key-enabled': 'bool',
             '*host-data': 'str',
-            '*vcek-disabled': 'bool' } }
+            '*vcek-disabled': 'bool',
+            '*secure-tsc': 'bool',
+            '*stsc-freq': 'uint32' } }
 
 ##
 # @ThreadContextProperties:

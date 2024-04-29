@@ -163,6 +163,9 @@ struct SevSnpGuestState {
 
     uint32_t kernel_hashes_offset;
     PaddedSevHashTable *kernel_hashes_data;
+
+    uint64_t vmsa_features;
+    uint32_t stsc_khz;
 };
 
 #define DEFAULT_GUEST_POLICY    0x1 /* disable debug */
@@ -393,6 +396,15 @@ sev_es_enabled(void)
 
     return sev_snp_enabled() ||
             (sev_enabled() && SEV_GUEST(cgs)->policy & SEV_POLICY_ES);
+}
+
+bool
+secure_tsc_enabled(void)
+{
+    ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
+
+    return sev_snp_enabled() &&
+            (SEV_SNP_GUEST(cgs)->vmsa_features & SEV_VMSA_SECURE_TSC);
 }
 
 uint32_t
@@ -771,6 +783,21 @@ sev_snp_launch_start(SevCommonState *sev_common)
 
     if (!kvm_enable_hypercall(BIT_ULL(KVM_HC_MAP_GPA_RANGE))) {
             return 1;
+    }
+
+    if (secure_tsc_enabled() && sev_snp_guest->stsc_khz) {
+        if (!kvm_check_extension(kvm_state, KVM_CAP_VM_TSC_CONTROL)) {
+            error_report("%s: SNP_LAUNCH_START: KVM_CAP_VM_TSC_CONTROL is not "
+                         "available, cannot set VM TSC frequency\n", __func__);
+            return 1;
+        }
+
+        rc = kvm_vm_ioctl(kvm_state, KVM_SET_TSC_KHZ, sev_snp_guest->stsc_khz);
+        if (rc < 0) {
+            error_report("%s: SNP_LAUNCH_START unable to set Secure TSC "
+                         "frequency %d\n", __func__, sev_snp_guest->stsc_khz);
+            return 1;
+	}
     }
 
     rc = sev_ioctl(sev_common->sev_fd, KVM_SEV_SNP_LAUNCH_START,
@@ -1524,6 +1551,9 @@ static int sev_common_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
     case KVM_X86_SNP_VM: {
         struct kvm_sev_init args = { 0 };
 
+	if (sev_snp_enabled()) {
+            args.vmsa_features = SEV_SNP_GUEST(sev_common)->vmsa_features;
+        }
         ret = sev_ioctl(sev_common->sev_fd, KVM_SEV_INIT2, &args, &fw_error);
         break;
     }
@@ -2393,6 +2423,46 @@ sev_snp_guest_set_host_data(Object *obj, const char *value, Error **errp)
     memcpy(finish->host_data, blob, len);
 }
 
+static bool
+sev_snp_guest_get_secure_tsc(Object *obj, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    return sev_snp_guest->vmsa_features & SEV_VMSA_SECURE_TSC;
+}
+
+static void
+sev_snp_guest_set_secure_tsc(Object *obj, bool value, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+
+    if (value)
+        sev_snp_guest->vmsa_features |= SEV_VMSA_SECURE_TSC;
+}
+
+static void
+sev_snp_guest_get_stsc_freq(Object *obj, Visitor *v, const char *name,
+                           void *opaque, Error **errp)
+{
+    uint32_t value = SEV_SNP_GUEST(obj)->stsc_khz * 1000;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static void
+sev_snp_guest_set_stsc_freq(Object *obj, Visitor *v, const char *name,
+                           void *opaque, Error **errp)
+{
+    SevSnpGuestState *sev_snp_guest = SEV_SNP_GUEST(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+
+    sev_snp_guest->stsc_khz = value / 1000;
+}
+
 static void
 sev_snp_guest_class_init(ObjectClass *oc, void *data)
 {
@@ -2428,6 +2498,12 @@ sev_snp_guest_class_init(ObjectClass *oc, void *data)
     object_class_property_add_str(oc, "host-data",
                                   sev_snp_guest_get_host_data,
                                   sev_snp_guest_set_host_data);
+    object_class_property_add_bool(oc, "secure-tsc",
+                                   sev_snp_guest_get_secure_tsc,
+                                   sev_snp_guest_set_secure_tsc);
+    object_class_property_add(oc, "stsc-freq", "uint32",
+                              sev_snp_guest_get_stsc_freq,
+                              sev_snp_guest_set_stsc_freq, NULL, NULL);
 }
 
 static void

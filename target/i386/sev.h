@@ -22,10 +22,12 @@
 #define sev_enabled() 0
 #define sev_es_enabled() 0
 #define sev_snp_enabled() 0
+#define secure_tsc_enabled() 0
 #else
 bool sev_enabled(void);
 bool sev_es_enabled(void);
 bool sev_snp_enabled(void);
+bool secure_tsc_enabled(void);
 #endif
 
 #if !defined(CONFIG_USER_ONLY)
@@ -43,6 +45,8 @@ bool sev_snp_enabled(void);
 
 #define SEV_SNP_POLICY_SMT      0x10000
 #define SEV_SNP_POLICY_DBG      0x80000
+
+#define SEV_VMSA_SECURE_TSC        BIT(9)
 
 typedef struct SevKernelLoaderContext {
     char *setup_data;
