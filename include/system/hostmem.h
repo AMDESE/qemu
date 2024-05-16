@@ -21,8 +21,11 @@
 #include "qemu/thread-context.h"
 
 #define TYPE_MEMORY_BACKEND "memory-backend"
+#define TYPE_MEMORY_BACKEND_MEMFD "memory-backend-memfd"
 OBJECT_DECLARE_TYPE(HostMemoryBackend, HostMemoryBackendClass,
                     MEMORY_BACKEND)
+OBJECT_DECLARE_TYPE(HostMemoryBackendMemfd, HostMemoryBackendMemfdClass,
+                    MEMORY_BACKEND_MEMFD)
 
 /* hostmem-ram.c */
 /**
@@ -58,6 +61,13 @@ struct HostMemoryBackendClass {
      * Return: true on success, else false setting @errp with error.
      */
     bool (*alloc)(HostMemoryBackend *backend, Error **errp);
+};
+
+struct HostMemoryBackendMemfdClass {
+    HostMemoryBackendClass parent_class;
+
+    int (*discard)(Object *backend, RAMBlock *rb, uint64_t offset,
+                   uint64_t size, bool shared_to_private);
 };
 
 /**

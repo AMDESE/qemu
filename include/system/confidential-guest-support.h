@@ -30,6 +30,10 @@ OBJECT_DECLARE_TYPE(ConfidentialGuestSupport,
                     ConfidentialGuestSupportClass,
                     CONFIDENTIAL_GUEST_SUPPORT)
 
+#define DISCARD_BOTH 0
+#define DISCARD_SHARED 1
+#define DISCARD_PRIVATE 2
+#define DISCARD_NONE 3
 
 struct ConfidentialGuestSupport {
     Object parent;
@@ -66,6 +70,7 @@ struct ConfidentialGuestSupport {
     bool convert_in_place;
     GuestMemFdAllocator gmem_allocator;
     uint32_t gmem_page_size;
+    int discard;
 };
 
 typedef struct ConfidentialGuestSupportClass {
