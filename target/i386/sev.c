@@ -98,6 +98,7 @@ struct SevCommonState {
     uint32_t cbitpos;
     uint32_t reduced_phys_bits;
     bool kernel_hashes;
+    char *discard;
 
     /* runtime state */
     uint8_t api_major;
@@ -1587,11 +1588,13 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
      * for private guest memory, so discarding of shared memory is still
      * possible..
      */
-    ret = ram_block_discard_disable(true);
-    if (ret) {
-        error_setg(errp, "%s: cannot disable RAM discard", __func__);
-        return -1;
-    }
+     if (!sev_snp_enabled()) {
+         ret = ram_block_discard_disable(true);
+         if (ret) {
+             error_setg(errp, "%s: cannot disable RAM discard", __func__);
+             return -1;
+         }
+     }
 
     /*
      * SEV uses these notifiers to register/pin pages prior to guest use,
@@ -1615,7 +1618,22 @@ static int sev_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
+    SevCommonState *sev_common = SEV_COMMON(cgs);
     X86MachineState *x86ms = X86_MACHINE(ms);
+
+    ms->cgs->require_guest_memfd = true;
+
+    if (!g_strcmp0(sev_common->discard, "both")) {
+        cgs->discard = DISCARD_BOTH;
+    } else if (!g_strcmp0(sev_common->discard, "shared")) {
+        cgs->discard = DISCARD_SHARED;
+    } else if (!g_strcmp0(sev_common->discard, "private")) {
+        cgs->discard = DISCARD_PRIVATE;
+    } else if (!g_strcmp0(sev_common->discard, "none")) {
+        cgs->discard = DISCARD_NONE;
+    } else {
+        cgs->discard = DISCARD_NONE;
+    }
 
     if (x86ms->smm == ON_OFF_AUTO_AUTO) {
         x86ms->smm = ON_OFF_AUTO_OFF;
@@ -2064,6 +2082,18 @@ static void sev_common_set_kernel_hashes(Object *obj, bool value, Error **errp)
     SEV_COMMON(obj)->kernel_hashes = value;
 }
 
+static char *
+sev_common_get_discard(Object *obj, Error **errp)
+{
+    return g_strdup(SEV_COMMON(obj)->discard);
+}
+
+static void
+sev_common_set_discard(Object *obj, const char *value, Error **errp)
+{
+    SEV_COMMON(obj)->discard = g_strdup(value);
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -2081,6 +2111,9 @@ sev_common_class_init(ObjectClass *oc, void *data)
                                    sev_common_set_kernel_hashes);
     object_class_property_set_description(oc, "kernel-hashes",
             "add kernel hashes to guest firmware for measured Linux boot");
+    object_class_property_add_str(oc, "discard",
+                                  sev_common_get_discard,
+                                  sev_common_set_discard);
 }
 
 static void
