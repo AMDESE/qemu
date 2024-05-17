@@ -853,6 +853,8 @@ static bool hiod_iommufd_vfio_realize(HostIOMMUDevice *hiod, void *opaque,
     case IOMMU_HW_INFO_TYPE_ARM_SMMUV3:
     case IOMMU_HW_INFO_TYPE_NONE:
         break;
+    default:
+        return false;
     }
 
     return true;

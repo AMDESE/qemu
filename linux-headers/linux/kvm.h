@@ -51,6 +51,7 @@ struct kvm_userspace_memory_region2 {
 #define KVM_MEM_LOG_DIRTY_PAGES	(1UL << 0)
 #define KVM_MEM_READONLY	(1UL << 1)
 #define KVM_MEM_GUEST_MEMFD	(1UL << 2)
+#define KVM_MEM_VFIO_DMABUF	(1UL << 3)
 
 /* for KVM_IRQ_LINE */
 struct kvm_irq_level {
@@ -135,6 +136,46 @@ struct kvm_xen_exit {
 	} u;
 };
 
+struct kvm_user_vmgexit {
+#define KVM_USER_VMGEXIT_TIO_REQ	4
+#define KVM_USER_VMGEXIT_TIO_OP	5
+	__u32 type; /* KVM_USER_VMGEXIT_* type */
+	union {
+		struct {
+			__u32 guest_rid;	/* in */
+			__u16 ret;		/* out */
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_STATE	BIT(0)
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_CERTS	BIT(1)
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_MEAS	BIT(2)
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_REPORT	BIT(3)
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_MMIO_VALIDATE	BIT(4)
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_MMIO_CONFIG	BIT(5)
+#define KVM_USER_VMGEXIT_TIO_REQ_FLAG_SDTE_VALIDATE	BIT(6)
+			__u8  flags;		/* in */
+			__u8  tdi_status;	/* out */
+			__u64 data_gpa;		/* in */
+			__u64 data_npages;	/* in/out */
+			__u64 req_spa;		/* in */
+			__u64 rsp_spa;		/* in */
+			__u64 gpa;		/* MMIO or vTOM */
+			__s32 fw_err;		/* out */
+		} tio_req;
+
+#define KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND	0
+#define KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_UNBIND	1
+#define KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_RUN	2
+#define KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_STOP	3
+		struct {
+			__u32 guest_rid;	/* in */
+			__u8 op;		/* in: SEV_TIO_OP_ */
+			__u8 reserved[3];
+			__s32 fw_err;		/* out */
+			__s32 reserved2;
+			__u64 fw_tdi_id;	/* out */
+		} tio_op;
+	};
+} __attribute__((packed));
+
 #define KVM_S390_GET_SKEYS_NONE   1
 #define KVM_S390_SKEYS_MAX        1048576
 
@@ -178,6 +219,9 @@ struct kvm_xen_exit {
 #define KVM_EXIT_NOTIFY           37
 #define KVM_EXIT_LOONGARCH_IOCSR  38
 #define KVM_EXIT_MEMORY_FAULT     39
+#define KVM_EXIT_TDX              40
+#define KVM_EXIT_ARM_SEA          41
+#define KVM_EXIT_VMGEXIT          42
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */
@@ -369,6 +413,7 @@ struct kvm_run {
 #define KVM_SYSTEM_EVENT_WAKEUP         4
 #define KVM_SYSTEM_EVENT_SUSPEND        5
 #define KVM_SYSTEM_EVENT_SEV_TERM       6
+#define KVM_SYSTEM_EVENT_TDX_FATAL      7
 			__u32 type;
 			__u32 ndata;
 			union {
@@ -438,6 +483,40 @@ struct kvm_run {
 			__u64 gpa;
 			__u64 size;
 		} memory_fault;
+		/* KVM_EXIT_TDX */
+		struct {
+			__u64 flags;
+			__u64 nr;
+			union {
+				struct {
+					__u64 ret;
+					__u64 data[5];
+				} unknown;
+				struct {
+					__u64 ret;
+					__u64 gpa;
+					__u64 size;
+				} get_quote;
+				struct {
+					__u64 ret;
+					__u64 leaf;
+					__u64 r11, r12, r13, r14;
+				} get_tdvmcall_info;
+				struct {
+					__u64 ret;
+					__u64 vector;
+				} setup_event_notify;
+			};
+		} tdx;
+		/* KVM_EXIT_ARM_SEA */
+		struct {
+#define KVM_EXIT_ARM_SEA_FLAG_GPA_VALID	(1ULL << 0)
+			__u64 flags;
+			__u64 esr;
+			__u64 gva;
+			__u64 gpa;
+		} arm_sea;
+		struct kvm_user_vmgexit vmgexit;
 		/* Fix the size of the union. */
 		char padding[256];
 	};
@@ -609,6 +688,7 @@ struct kvm_ioeventfd {
 #define KVM_X86_DISABLE_EXITS_HLT            (1 << 1)
 #define KVM_X86_DISABLE_EXITS_PAUSE          (1 << 2)
 #define KVM_X86_DISABLE_EXITS_CSTATE         (1 << 3)
+#define KVM_X86_DISABLE_EXITS_APERFMPERF     (1 << 4)
 
 /* for KVM_ENABLE_CAP */
 struct kvm_enable_cap {
@@ -921,7 +1001,15 @@ struct kvm_enable_cap {
 #define KVM_CAP_PRE_FAULT_MEMORY 236
 #define KVM_CAP_X86_APIC_BUS_CYCLES_NS 237
 #define KVM_CAP_X86_GUEST_MODE 238
-#define KVM_CAP_MEMORY_ATTRIBUTES2            247
+#define KVM_CAP_ARM_WRITABLE_IMP_ID_REGS 239
+#define KVM_CAP_ARM_EL2 240
+#define KVM_CAP_ARM_EL2_E2H0 241
+#define KVM_CAP_RISCV_MP_STATE_RESET 242
+#define KVM_CAP_ARM_CACHEABLE_PFNMAP_SUPPORTED 243
+#define KVM_CAP_GUEST_MEMFD_FLAGS 244
+#define KVM_CAP_ARM_SEA_TO_USER 245
+#define KVM_CAP_S390_USER_OPEREXEC 246
+#define KVM_CAP_MEMORY_ATTRIBUTES2 247
 #define KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES 248
 
 struct kvm_irq_routing_irqchip {
@@ -1549,9 +1637,6 @@ struct kvm_stats_desc {
 /* Available with KVM_CAP_MEMORY_ATTRIBUTES */
 #define KVM_SET_MEMORY_ATTRIBUTES              _IOW(KVMIO,  0xd2, struct kvm_memory_attributes)
 
-/* Available with KVM_CAP_MEMORY_ATTRIBUTES2 */
-#define KVM_SET_MEMORY_ATTRIBUTES2             _IOWR(KVMIO,  0xd2, struct kvm_memory_attributes2)
-
 struct kvm_memory_attributes {
 	__u64 address;
 	__u64 size;
@@ -1559,12 +1644,15 @@ struct kvm_memory_attributes {
 	__u64 flags;
 };
 
+/* Available with KVM_CAP_MEMORY_ATTRIBUTES2 */
+#define KVM_SET_MEMORY_ATTRIBUTES2              _IOWR(KVMIO,  0xd2, struct kvm_memory_attributes2)
+
 struct kvm_memory_attributes2 {
-    union {
-        __u64 address;
-        __u64 offset;
-    };
-    __u64 size;
+	union {
+		__u64 address;
+		__u64 offset;
+	};
+	__u64 size;
 	__u64 attributes;
 	__u64 flags;
 	__u64 error_offset;
@@ -1574,15 +1662,18 @@ struct kvm_memory_attributes2 {
 #define KVM_MEMORY_ATTRIBUTE_PRIVATE           (1ULL << 3)
 
 #define KVM_CREATE_GUEST_MEMFD	_IOWR(KVMIO,  0xd4, struct kvm_create_guest_memfd)
+#define GUEST_MEMFD_FLAG_MMAP		(1ULL << 0)
+#define GUEST_MEMFD_FLAG_INIT_SHARED	(1ULL << 1)
+#define GUEST_MEMFD_FLAG_HUGETLB	(1ULL << 2)
 
 struct kvm_create_guest_memfd {
 	__u64 size;
 	__u64 flags;
-    __u8 page_order;
-    __u8 reserve8;
-    __u16 reserve16;
-    __u32 reserve32;
-    __u64 reserved[5];
+	__u8 page_order;
+	__u8 reserve8;
+	__u16 reserve16;
+	__u32 reserve32;
+	__u64 reserved[5];
 };
 
 #define KVM_PRE_FAULT_MEMORY	_IOWR(KVMIO, 0xd5, struct kvm_pre_fault_memory)
@@ -1592,17 +1683,6 @@ struct kvm_pre_fault_memory {
 	__u64 size;
 	__u64 flags;
 	__u64 padding[5];
-};
-
-#define KVM_GMEM_IO 0xAF
-#define KVM_GMEM_CONVERT_SHARED         _IOWR(KVM_GMEM_IO,  0x41, struct kvm_gmem_convert)
-#define KVM_GMEM_CONVERT_PRIVATE        _IOWR(KVM_GMEM_IO,  0x42, struct kvm_gmem_convert)
-
-struct kvm_gmem_convert {
-        __u64 offset;
-        __u64 size;
-        __u64 error_offset;
-        __u64 reserved[5];
 };
 
 #endif /* __LINUX_KVM_H */

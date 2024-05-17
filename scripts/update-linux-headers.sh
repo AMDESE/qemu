@@ -63,8 +63,8 @@ cp_portable() {
                                      -e 'linux/kernel' \
                                      -e 'linux/sysinfo' \
                                      -e 'asm/setup_data.h' \
-                                     -e 'asm/kvm_para.h' \
-                                     > /dev/null
+                                     -e 'asm/kvm_para.h'
+#                                     > /dev/null
     then
         echo "Unexpected #include in input file $f".
         exit 2
@@ -129,6 +129,7 @@ for arch in $ARCHLIST; do
     mkdir -p "$output/linux-headers/asm-$arch"
     for header in kvm.h unistd.h bitsperlong.h mman.h; do
         if test -f "$hdrdir/include/asm/$header"; then
+            echo 1111 cp "$hdrdir/include/asm/$header" "$output/linux-headers/asm-$arch"
             cp "$hdrdir/include/asm/$header" "$output/linux-headers/asm-$arch"
         elif test -f "$hdrdir/include/asm-generic/$header"; then
             # not installed as <asm/$header>, but used as such in kernel sources
@@ -145,7 +146,7 @@ EOF
         cp "$hdrdir/include/asm/unistd_n64.h" "$output/linux-headers/asm-mips/"
     fi
     if [ $arch = powerpc ]; then
-        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-powerpc/"
+#        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-powerpc/"
         cp "$hdrdir/include/asm/unistd_64.h" "$output/linux-headers/asm-powerpc/"
     fi
 
@@ -153,7 +154,7 @@ EOF
     mkdir -p "$output/include/standard-headers/asm-$arch"
     if [ $arch = s390 ]; then
         cp_portable "$hdrdir/include/asm/virtio-ccw.h" "$output/include/standard-headers/asm-s390/"
-        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-s390/"
+#        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-s390/"
         cp "$hdrdir/include/asm/unistd_64.h" "$output/linux-headers/asm-s390/"
     fi
     if [ $arch = arm ]; then
@@ -166,7 +167,7 @@ EOF
         cp "$hdrdir/include/asm/unistd_64.h" "$output/linux-headers/asm-arm64/"
     fi
     if [ $arch = x86 ]; then
-        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-x86/"
+#        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-x86/"
         cp "$hdrdir/include/asm/unistd_x32.h" "$output/linux-headers/asm-x86/"
         cp "$hdrdir/include/asm/unistd_64.h" "$output/linux-headers/asm-x86/"
 
@@ -186,7 +187,7 @@ EOF
     fi
     if [ $arch = riscv ]; then
         cp "$hdrdir/include/asm/ptrace.h" "$output/linux-headers/asm-riscv/"
-        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-riscv/"
+#        cp "$hdrdir/include/asm/unistd_32.h" "$output/linux-headers/asm-riscv/"
         cp "$hdrdir/include/asm/unistd_64.h" "$output/linux-headers/asm-riscv/"
     fi
     if [ $arch = loongarch ]; then
@@ -200,7 +201,8 @@ rm -rf "$output/linux-headers/linux"
 mkdir -p "$output/linux-headers/linux"
 for header in const.h stddef.h kvm.h vfio.h vfio_ccw.h vfio_zdev.h vhost.h \
               psci.h psp-sev.h userfaultfd.h memfd.h mman.h nvme_ioctl.h \
-              vduse.h iommufd.h bits.h; do
+              vduse.h iommufd.h bits.h ; do
+    echo 2222 cp "$hdrdir/include/linux/$header" "$output/linux-headers/linux"
     cp "$hdrdir/include/linux/$header" "$output/linux-headers/linux"
 done
 

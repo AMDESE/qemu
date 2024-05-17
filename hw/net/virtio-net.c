@@ -1883,7 +1883,8 @@ static int virtio_net_process_rss(NetClientState *nc, const uint8_t *buf,
                                              n->rss_data.hash_types);
     if (net_hash_type > NetPktRssIpV6UdpEx) {
         if (n->rss_data.populate_hash) {
-            hdr->hash_value = VIRTIO_NET_HASH_REPORT_NONE;
+            hdr->hash_value_lo = VIRTIO_NET_HASH_REPORT_NONE;
+            hdr->hash_value_hi = 0;
             hdr->hash_report = 0;
         }
         return n->rss_data.redirect ? n->rss_data.default_queue : -1;
