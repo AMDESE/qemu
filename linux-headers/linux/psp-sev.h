@@ -73,13 +73,51 @@ typedef enum {
 	SEV_RET_INVALID_PARAM,
 	SEV_RET_RESOURCE_LIMIT,
 	SEV_RET_SECURE_DATA_INVALID,
-	SEV_RET_INVALID_KEY = 0x27,
-	SEV_RET_INVALID_PAGE_SIZE,
-	SEV_RET_INVALID_PAGE_STATE,
-	SEV_RET_INVALID_MDATA_ENTRY,
-	SEV_RET_INVALID_PAGE_OWNER,
-	SEV_RET_INVALID_PAGE_AEAD_OFLOW,
-	SEV_RET_RMP_INIT_REQUIRED,
+	SEV_RET_INVALID_PAGE_SIZE          = 0x0019,
+	SEV_RET_INVALID_PAGE_STATE         = 0x001A,
+	SEV_RET_INVALID_MDATA_ENTRY        = 0x001B,
+	SEV_RET_INVALID_PAGE_OWNER         = 0x001C,
+	SEV_RET_AEAD_OFLOW                 = 0x001D,
+	SEV_RET_EXIT_RING_BUFFER           = 0x001F,
+	SEV_RET_RMP_INIT_REQUIRED          = 0x0020,
+	SEV_RET_BAD_SVN                    = 0x0021,
+	SEV_RET_BAD_VERSION                = 0x0022,
+	SEV_RET_SHUTDOWN_REQUIRED          = 0x0023,
+	SEV_RET_UPDATE_FAILED              = 0x0024,
+	SEV_RET_RESTORE_REQUIRED           = 0x0025,
+	SEV_RET_RMP_INITIALIZATION_FAILED  = 0x0026,
+	SEV_RET_INVALID_KEY                = 0x0027,
+	SEV_RET_SHUTDOWN_INCOMPLETE        = 0x0028,
+	SEV_RET_INCORRECT_BUFFER_LENGTH	   = 0x0030,
+	SEV_RET_EXPAND_BUFFER_LENGTH_REQUEST = 0x0031,
+	SEV_RET_SPDM_REQUEST               = 0x0032,
+	SEV_RET_SPDM_ERROR                 = 0x0033,
+	SEV_RET_IN_USE                     = 0x003A,
+	SEV_RET_ERR_UNKNOWN                = 0x8000,
+	SEV_RET_ERR_INVAL                  = 0x8001,
+	SEV_RET_ERR_INVALID_PARAMS         = 0x8003,
+	SEV_RET_ERR_SECURE_DATA_VALIDATION = 0x8004,
+	SEV_RET_ERR_SECURE_DATA_NON_EXIST  = 0x8005,
+	SEV_RET_ERR_OUT_OF_RESOURCES       = 0x8006,
+	SEV_RET_ERR_UNIMPLEMENTED          = 0x8007,
+	SEV_RET_ERR_SEV_DLFW_CONTINUING    = 0x8008,
+	SEV_RET_ERR_STATUS_ISB_ERROR       = 0x8009,
+	SEV_RET_ERR_HAL_SLAVE_DIE          = 0x9000,
+	SEV_RET_ERR_HAL_PERSISTENT_WRITE   = 0x9001,
+	SEV_RET_ERR_HAL_PERSISTENT_READ    = 0x9002,
+	SEV_RET_ERR_HAL_PERSISTENT_ERASE   = 0x9003,
+	SEV_RET_ERR_HAL_KEY_DERIVE         = 0x9004,
+	SEV_RET_ERR_HAL_AES                = 0x9005,
+	SEV_RET_ERR_HAL_SHA256             = 0x9006,
+	SEV_RET_ERR_HAL_CACHE              = 0x9007,
+	SEV_RET_ERR_HAL_MEMORY_MAP         = 0x9008,
+	SEV_RET_ERR_HAL_TRNG               = 0x9009,
+	SEV_RET_ERR_HAL_ECC_PRIMITIVE      = 0x900A,
+	SEV_RET_ERR_HAL_RSA_PSS_VALIDATE   = 0x900B,
+	SEV_RET_ERR_HAL_MAP_SMN            = 0x900E,
+	SEV_RET_ERR_HAL_MCM_INFO           = 0x900F,
+	SEV_RET_ERR_HAL_SEV_MODE           = 0x9010,
+	SEV_RET_ERR_TIO_DATABUFFER_EXPAND  = 0xA000,
 	SEV_RET_MAX,
 } sev_ret_code;
 
@@ -178,6 +216,10 @@ struct sev_user_data_get_id2 {
  * @mask_chip_id: whether chip id is present in attestation reports or not
  * @mask_chip_key: whether attestation reports are signed or not
  * @vlek_en: VLEK (Version Loaded Endorsement Key) hashstick is loaded
+ * @feature_info: whether SNP_FEATURE_INFO command is available
+ * @rapl_dis: whether RAPL is disabled
+ * @ciphertext_hiding_cap: whether platform has ciphertext hiding capability
+ * @ciphertext_hiding_en: whether ciphertext hiding is enabled
  * @rsvd1: reserved
  * @guest_count: the number of guest currently managed by the firmware
  * @current_tcb_version: current TCB version
@@ -193,7 +235,11 @@ struct sev_user_data_snp_status {
 	__u32 mask_chip_id:1;		/* Out */
 	__u32 mask_chip_key:1;		/* Out */
 	__u32 vlek_en:1;		/* Out */
-	__u32 rsvd1:29;
+	__u32 feature_info:1;		/* Out */
+	__u32 rapl_dis:1;		/* Out */
+	__u32 ciphertext_hiding_cap:1;	/* Out */
+	__u32 ciphertext_hiding_en:1;	/* Out */
+	__u32 rsvd1:25;
 	__u32 guest_count;		/* Out */
 	__u64 current_tcb_version;	/* Out */
 	__u64 reported_tcb_version;	/* Out */
