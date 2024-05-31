@@ -2093,6 +2093,11 @@ static bool vfio_setup_pcie_cap(VFIOPCIDevice *vdev, int pos, uint8_t size,
                                1, PCI_EXP_FLAGS_VERS);
     }
 
+    if (vdev->has_tee_io && !vdev->vbasedev.tee_io) {
+        printf("+++Q+++ (%u) %s %u: Force disable TEE-IO\n", getpid(), __func__, __LINE__);
+        vfio_add_emulated_long(vdev, pos + PCI_EXP_DEVCAP, 0, PCI_EXP_DEVCAP_TEE);
+    }
+
     pos = pci_add_capability(&vdev->pdev, PCI_CAP_ID_EXP, pos, size,
                              errp);
     if (pos < 0) {
@@ -2121,6 +2126,16 @@ static void vfio_check_pm_reset(VFIOPCIDevice *vdev, uint8_t pos)
     if (!(csr & PCI_PM_CTRL_NO_SOFT_RESET)) {
         trace_vfio_check_pm_reset(vdev->vbasedev.name);
         vdev->has_pm_reset = true;
+    }
+}
+
+static void vfio_check_pcie_tee_io(VFIOPCIDevice *vdev, uint8_t pos)
+{
+    uint32_t cap = pci_get_long(vdev->pdev.config + pos + PCI_EXP_DEVCAP);
+
+    if (cap & PCI_EXP_DEVCAP_TEE) {
+        trace_vfio_check_pcie_tee_io(vdev->vbasedev.name);
+        vdev->has_tee_io = true;
     }
 }
 
@@ -2208,6 +2223,7 @@ static bool vfio_add_std_cap(VFIOPCIDevice *vdev, uint8_t pos, Error **errp)
         break;
     case PCI_CAP_ID_EXP:
         vfio_check_pcie_flr(vdev, pos);
+        vfio_check_pcie_tee_io(vdev, pos);
         ret = vfio_setup_pcie_cap(vdev, pos, size, errp);
         break;
     case PCI_CAP_ID_MSIX:
@@ -3401,6 +3417,7 @@ static const Property vfio_pci_dev_properties[] = {
                      TYPE_IOMMUFD_BACKEND, IOMMUFDBackend *),
 #endif
     DEFINE_PROP_BOOL("skip-vsc-check", VFIOPCIDevice, skip_vsc_check, true),
+    DEFINE_PROP_BOOL("x-tio", VFIOPCIDevice, vbasedev.tee_io, true),
 };
 
 #ifdef CONFIG_IOMMUFD
