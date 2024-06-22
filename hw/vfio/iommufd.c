@@ -569,6 +569,11 @@ static bool iommufd_cdev_attach(const char *name, VFIODevice *vbasedev,
         bcontainer->pgsizes = qemu_real_host_page_size();
     }
 
+    if (vbasedev->tee_io) {
+        bcontainer->discard_shared = true;
+        warn_report("Discard manager is set to discard shared");
+    }
+
     bcontainer->listener = vfio_memory_listener;
     memory_listener_register(&bcontainer->listener, bcontainer->space->as);
 
