@@ -337,8 +337,8 @@ out:
     rcu_read_unlock();
 }
 
-static void vfio_ram_discard_notify_discard(RamDiscardListener *rdl,
-                                            MemoryRegionSection *section)
+static int vfio_ram_discard_notify_discard(RamDiscardListener *rdl,
+                                           MemoryRegionSection *section)
 {
     VFIORamDiscardListener *vrdl = container_of(rdl, VFIORamDiscardListener,
                                                 listener);
@@ -353,6 +353,8 @@ static void vfio_ram_discard_notify_discard(RamDiscardListener *rdl,
         error_report("%s: vfio_container_dma_unmap() failed: %s", __func__,
                      strerror(-ret));
     }
+
+    return 0;
 }
 
 static int vfio_ram_discard_notify_populate(RamDiscardListener *rdl,
@@ -415,10 +417,17 @@ static void vfio_register_ram_discard_listener(VFIOContainerBase *bcontainer,
     g_assert(bcontainer->pgsizes &&
              vrdl->granularity >= 1ULL << ctz64(bcontainer->pgsizes));
 
-    ram_discard_listener_init(&vrdl->listener,
-                              vfio_ram_discard_notify_populate,
-                              vfio_ram_discard_notify_discard, true);
-    ram_discard_manager_register_listener(rdm, &vrdl->listener, section);
+    if (bcontainer->discard_shared) {
+        ram_discard_listener_init(&vrdl->listener,
+                                  vfio_ram_discard_notify_discard,
+                                  vfio_ram_discard_notify_populate, true);
+        vrdl->discard_shared = true;
+    } else {
+        ram_discard_listener_init(&vrdl->listener,
+                                  vfio_ram_discard_notify_populate,
+                                  vfio_ram_discard_notify_discard, true);
+    }
+    ram_discard_manager_register_listener(rdm, &vrdl->listener, section, bcontainer->discard_shared);
     QLIST_INSERT_HEAD(&bcontainer->vrdl_list, vrdl, next);
 
     /*

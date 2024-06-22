@@ -1804,12 +1804,14 @@ static void virtio_mem_rdm_replay_discarded(const RamDiscardManager *rdm,
 
 static void virtio_mem_rdm_register_listener(RamDiscardManager *rdm,
                                              RamDiscardListener *rdl,
-                                             MemoryRegionSection *s)
+                                             MemoryRegionSection *s,
+                                             bool discard_shared)
 {
     VirtIOMEM *vmem = VIRTIO_MEM(rdm);
     int ret;
 
     g_assert(s->mr == &vmem->memdev->mr);
+    g_assert(!discard_shared);
     rdl->section = memory_region_section_new_copy(s);
 
     QLIST_INSERT_HEAD(&vmem->rdl_list, rdl, next);
