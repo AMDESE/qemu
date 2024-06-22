@@ -519,8 +519,8 @@ struct IOMMUMemoryRegionClass {
 typedef struct RamDiscardListener RamDiscardListener;
 typedef int (*NotifyRamPopulate)(RamDiscardListener *rdl,
                                  MemoryRegionSection *section);
-typedef void (*NotifyRamDiscard)(RamDiscardListener *rdl,
-                                 MemoryRegionSection *section);
+typedef int (*NotifyRamDiscard)(RamDiscardListener *rdl,
+                                MemoryRegionSection *section);
 
 struct RamDiscardListener {
     /*
@@ -698,7 +698,8 @@ struct RamDiscardManagerClass {
      */
     void (*register_listener)(RamDiscardManager *rdm,
                               RamDiscardListener *rdl,
-                              MemoryRegionSection *section);
+                              MemoryRegionSection *section,
+                              bool discard_shared);
 
     /**
      * @unregister_listener:
@@ -733,7 +734,8 @@ void ram_discard_manager_replay_discarded(const RamDiscardManager *rdm,
 
 void ram_discard_manager_register_listener(RamDiscardManager *rdm,
                                            RamDiscardListener *rdl,
-                                           MemoryRegionSection *section);
+                                           MemoryRegionSection *section,
+                                           bool discard_shared);
 
 void ram_discard_manager_unregister_listener(RamDiscardManager *rdm,
                                              RamDiscardListener *rdl);

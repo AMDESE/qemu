@@ -2165,12 +2165,13 @@ void ram_discard_manager_replay_discarded(const RamDiscardManager *rdm,
 
 void ram_discard_manager_register_listener(RamDiscardManager *rdm,
                                            RamDiscardListener *rdl,
-                                           MemoryRegionSection *section)
+                                           MemoryRegionSection *section,
+                                           bool discard_shared)
 {
     RamDiscardManagerClass *rdmc = RAM_DISCARD_MANAGER_GET_CLASS(rdm);
 
     g_assert(rdmc->register_listener);
-    rdmc->register_listener(rdm, rdl, section);
+    rdmc->register_listener(rdm, rdl, section, discard_shared);
 }
 
 void ram_discard_manager_unregister_listener(RamDiscardManager *rdm,
