@@ -51,6 +51,7 @@ typedef struct VFIOContainerBase {
     QLIST_HEAD(, VFIODevice) device_list;
     GList *iova_ranges;
     NotifierWithReturn cpr_reboot_notifier;
+    bool discard_shared;
 } VFIOContainerBase;
 
 typedef struct VFIOGuestIOMMU {
@@ -69,6 +70,7 @@ typedef struct VFIORamDiscardListener {
     uint64_t granularity;
     RamDiscardListener listener;
     QLIST_ENTRY(VFIORamDiscardListener) next;
+    bool discard_shared;
 } VFIORamDiscardListener;
 
 int vfio_container_dma_map(VFIOContainerBase *bcontainer,
