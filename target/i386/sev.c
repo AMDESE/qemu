@@ -274,6 +274,7 @@ sev_platform_ioctl(int fd, int cmd, void *data, int *error)
     if (error) {
         *error = arg.error;
     }
+    trace_sev_platform_ioctl(fd, cmd, r, arg.error);
 
     return r;
 }
