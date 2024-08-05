@@ -1554,6 +1554,7 @@ bool vfio_attach_device(char *name, VFIODevice *vbasedev,
     const VFIOIOMMUClass *ops =
         VFIO_IOMMU_CLASS(object_class_by_name(TYPE_VFIO_IOMMU_LEGACY));
     HostIOMMUDevice *hiod = NULL;
+    HostIOMMUDeviceClass *hiod_ops = NULL;
 
     if (vbasedev->iommufd) {
         ops = VFIO_IOMMU_CLASS(object_class_by_name(TYPE_VFIO_IOMMU_IOMMUFD));
@@ -1564,16 +1565,26 @@ bool vfio_attach_device(char *name, VFIODevice *vbasedev,
 
     if (!vbasedev->mdev) {
         hiod = HOST_IOMMU_DEVICE(object_new(ops->hiod_typename));
+        hiod_ops = HOST_IOMMU_DEVICE_GET_CLASS(hiod);
         vbasedev->hiod = hiod;
     }
 
     if (!ops->attach_device(name, vbasedev, as, errp)) {
-        object_unref(hiod);
-        vbasedev->hiod = NULL;
-        return false;
+        goto err_attach;
+    }
+
+    if (hiod_ops && hiod_ops->realize_late &&
+        !hiod_ops->realize_late(hiod, vbasedev, errp)) {
+        ops->detach_device(vbasedev);
+        goto err_attach;
     }
 
     return true;
+
+err_attach:
+    object_unref(hiod);
+    vbasedev->hiod = NULL;
+    return false;
 }
 
 void vfio_detach_device(VFIODevice *vbasedev)
