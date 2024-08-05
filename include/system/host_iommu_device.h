@@ -67,6 +67,23 @@ struct HostIOMMUDeviceClass {
      */
     bool (*realize)(HostIOMMUDevice *hiod, void *opaque, Error **errp);
     /**
+     * @realize_late: initialize host IOMMU device instance after attachment,
+     *                some elements e.g., ioas are ready only after attachment.
+     *                This callback initialize them.
+     *
+     * Optional callback.
+     *
+     * @hiod: pointer to a host IOMMU device instance.
+     *
+     * @opaque: pointer to agent device of this host IOMMU device,
+     *          e.g., VFIO base device or VDPA device.
+     *
+     * @errp: pass an Error out when realize fails.
+     *
+     * Returns: true on success, false on failure.
+     */
+    bool (*realize_late)(HostIOMMUDevice *hiod, void *opaque, Error **errp);
+    /**
      * @get_cap: check if a host IOMMU device capability is supported.
      *
      * Optional callback, if not implemented, hint not supporting query
