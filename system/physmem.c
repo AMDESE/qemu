@@ -1883,8 +1883,31 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         assert(kvm_enabled());
         assert(new_block->guest_memfd < 0);
 
-        new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
-                                                        0, errp);
+        HostMemoryBackend *backend = MEMORY_BACKEND(new_block->mr->owner);
+        /* NUMA policy is provided for guest-memfd. */
+        if (IS_ENABLED(CONFIG_NUMA) && backend && backend->policy) {
+            unsigned long maxnode = find_numa_maxnode(backend->host_nodes);
+            if (verify_policy_hostnodes(backend->policy,
+                                        sizeof(backend->host_nodes), maxnode,
+                                        errp)) {
+                new_block->guest_memfd = kvm_create_guest_memfd(
+                                                    new_block->max_length, 0, errp);
+                if (new_block->guest_memfd < 0) {
+                        qemu_mutex_unlock_ramlist();
+                        goto out_free;
+                }
+                int ret = syscall(463, new_block->guest_memfd, backend->policy,
+                                backend->host_nodes, maxnode+1, 0);
+                if (ret) {
+                    qemu_mutex_unlock_ramlist();
+                    goto out_free;
+                }
+            }
+        } else {
+            new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
+                                                           0,  errp);
+        }
+
         if (new_block->guest_memfd < 0) {
             qemu_mutex_unlock_ramlist();
             goto out_free;
