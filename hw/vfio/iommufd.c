@@ -29,14 +29,14 @@
 #include "hw/i386/intel_iommu_internal.h"
 
 static int iommufd_cdev_map(const VFIOContainerBase *bcontainer, hwaddr iova,
-                            ram_addr_t size, void *vaddr, bool readonly)
+                            ram_addr_t size, void *vaddr, bool readonly, int memfd)
 {
     const VFIOIOMMUFDContainer *container =
         container_of(bcontainer, VFIOIOMMUFDContainer, bcontainer);
 
     return iommufd_backend_map_dma(container->be,
                                    container->ioas_id,
-                                   iova, size, vaddr, readonly);
+                                   iova, size, vaddr, readonly, memfd);
 }
 
 static int iommufd_cdev_unmap(const VFIOContainerBase *bcontainer,

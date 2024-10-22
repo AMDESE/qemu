@@ -140,7 +140,7 @@ void iommufd_backend_free_id(IOMMUFDBackend *be, uint32_t id)
 }
 
 int iommufd_backend_map_dma(IOMMUFDBackend *be, uint32_t ioas_id, hwaddr iova,
-                            ram_addr_t size, void *vaddr, bool readonly)
+                            ram_addr_t size, void *vaddr, bool readonly, int memfd)
 {
     int ret, fd = be->fd;
     struct iommu_ioas_map map = {
@@ -148,7 +148,6 @@ int iommufd_backend_map_dma(IOMMUFDBackend *be, uint32_t ioas_id, hwaddr iova,
         .flags = IOMMU_IOAS_MAP_READABLE |
                  IOMMU_IOAS_MAP_FIXED_IOVA,
         .ioas_id = ioas_id,
-        .__reserved = 0,
         .user_va = (uintptr_t)vaddr,
         .iova = iova,
         .length = size,
@@ -158,11 +157,21 @@ int iommufd_backend_map_dma(IOMMUFDBackend *be, uint32_t ioas_id, hwaddr iova,
         map.flags |= IOMMU_IOAS_MAP_WRITEABLE;
     }
 
-    ret = ioctl(fd, IOMMU_IOAS_MAP, &map);
+    if (memfd >= 0) {
+        struct iommu_ioas_map_file *mf = (struct iommu_ioas_map_file *) &map;
+
+        mf->fd = memfd;
+        ret = ioctl(fd, IOMMU_IOAS_MAP_FILE, &map);
+    } else {
+        ret = ioctl(fd, IOMMU_IOAS_MAP, &map);
+    }
     trace_iommufd_backend_map_dma(fd, ioas_id, iova, size,
-                                  vaddr, readonly, ret);
+                                  vaddr, readonly, memfd, ret);
     if (ret) {
         ret = -errno;
+
+        trace_iommufd_backend_map_dma_failed(fd, ioas_id, iova, size,
+                                             vaddr, readonly, memfd, ret);
 
         /* TODO: Not support mapping hardware PCI BAR region for now. */
         if (errno == EFAULT) {
