@@ -140,29 +140,43 @@ void iommufd_backend_free_id(IOMMUFDBackend *be, uint32_t id)
 }
 
 int iommufd_backend_map_dma(IOMMUFDBackend *be, uint32_t ioas_id, hwaddr iova,
-                            ram_addr_t size, void *vaddr, bool readonly)
+                            ram_addr_t size, void *vaddr, bool readonly, int memfd)
 {
     int ret, fd = be->fd;
-    struct iommu_ioas_map map = {
-        .size = sizeof(map),
-        .flags = IOMMU_IOAS_MAP_READABLE |
-                 IOMMU_IOAS_MAP_FIXED_IOVA,
-        .ioas_id = ioas_id,
-        .__reserved = 0,
-        .user_va = (uintptr_t)vaddr,
-        .iova = iova,
-        .length = size,
-    };
+	__u32 flags = IOMMU_IOAS_MAP_READABLE | IOMMU_IOAS_MAP_FIXED_IOVA |
+                (!readonly ? IOMMU_IOAS_MAP_WRITEABLE : 0);
 
-    if (!readonly) {
-        map.flags |= IOMMU_IOAS_MAP_WRITEABLE;
+    if (memfd >= 0) {
+        struct iommu_ioas_map_file map = {
+            .size = sizeof(map),
+            .flags = flags,
+            .ioas_id = ioas_id,
+            .fd = memfd,
+            .start = (uintptr_t)vaddr,
+            .length = size,
+            .iova = iova,
+        };
+
+        ret = ioctl(fd, IOMMU_IOAS_MAP_FILE, &map);
+    } else {
+        struct iommu_ioas_map map = {
+            .size = sizeof(map),
+            .flags = flags,
+            .ioas_id = ioas_id,
+            .user_va = (uintptr_t)vaddr,
+            .length = size,
+            .iova = iova,
+        };
+
+        ret = ioctl(fd, IOMMU_IOAS_MAP, &map);
     }
-
-    ret = ioctl(fd, IOMMU_IOAS_MAP, &map);
     trace_iommufd_backend_map_dma(fd, ioas_id, iova, size,
-                                  vaddr, readonly, ret);
+                                  vaddr, readonly, memfd, ret);
     if (ret) {
         ret = -errno;
+
+        trace_iommufd_backend_map_dma_failed(fd, ioas_id, iova, size,
+                                             vaddr, readonly, memfd, ret);
 
         /* TODO: Not support mapping hardware PCI BAR region for now. */
         if (errno == EFAULT) {
@@ -173,7 +187,7 @@ int iommufd_backend_map_dma(IOMMUFDBackend *be, uint32_t ioas_id, hwaddr iova,
 }
 
 int iommufd_backend_unmap_dma(IOMMUFDBackend *be, uint32_t ioas_id,
-                              hwaddr iova, ram_addr_t size)
+                              hwaddr iova, ram_addr_t size, int memfd)
 {
     int ret, fd = be->fd;
     struct iommu_ioas_unmap unmap = {
