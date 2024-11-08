@@ -33,6 +33,7 @@ struct IOMMUFDBackend {
     int fd;            /* /dev/iommu file descriptor */
     bool owned;        /* is the /dev/iommu opened internally */
     uint32_t users;
+    struct IOMMUFDViommu *viommu;
 
     /*< public >*/
 };
