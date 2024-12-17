@@ -3080,6 +3080,46 @@ out_unref:
     return ret;
 }
 
+typedef struct ImmediateExitEntry ImmediateExitEntry;
+
+struct ImmediateExitEntry {
+    ImmediateExitCb *cb;
+    void *opaque;
+    QTAILQ_ENTRY(ImmediateExitEntry) next;
+};
+
+static QTAILQ_HEAD(, ImmediateExitEntry) immediate_exit_list = \
+    QTAILQ_HEAD_INITIALIZER(immediate_exit_list);
+
+void add_immediate_exit_callback(CPUState *cpu, ImmediateExitCb *cb, void *opaque)
+{
+    ImmediateExitEntry *entry = g_new(ImmediateExitEntry, 1);
+    entry->cb = cb;
+    entry->opaque = opaque;
+
+    bql_lock();
+    QTAILQ_INSERT_TAIL(&immediate_exit_list, entry, next);
+    bql_unlock();
+
+    kvm_cpu_kick(cpu);
+}
+
+static void process_immediate_exit_callbacks(void)
+{
+    ImmediateExitEntry *entry, *tmp;
+
+    bql_lock();
+
+    /* Handle any pending immediate-exit callbacks */
+    QTAILQ_FOREACH_SAFE(entry, &immediate_exit_list, next, tmp) {
+        entry->cb(entry->opaque);
+        QTAILQ_REMOVE(&immediate_exit_list, entry, next);
+        g_free(entry);
+    }
+
+    bql_unlock();
+}
+
 int kvm_cpu_exec(CPUState *cpu)
 {
     struct kvm_run *run = cpu->kvm_run;
@@ -3149,6 +3189,9 @@ int kvm_cpu_exec(CPUState *cpu)
             if (run_ret == -EINTR || run_ret == -EAGAIN) {
                 trace_kvm_io_window_exit();
                 kvm_eat_signals(cpu);
+                if (kvm_immediate_exit) {
+                    process_immediate_exit_callbacks();
+                }
                 ret = EXCP_INTERRUPT;
                 break;
             }

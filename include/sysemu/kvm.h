@@ -578,4 +578,7 @@ int kvm_set_memory_attributes_shared(hwaddr start, uint64_t size);
 
 int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private);
 
+typedef void ImmediateExitCb(void *opaque);
+void add_immediate_exit_callback(CPUState *cpu, ImmediateExitCb *cb, void *opaque);
+
 #endif
