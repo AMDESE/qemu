@@ -3529,6 +3529,9 @@ static void mtree_print_flatview(gpointer key, gpointer value,
                 }
             }
         }
+        if (mr->ram_block && mr->ram_block->guest_memfd >= 0) {
+            qemu_printf(" gmemfd=%d", mr->ram_block->guest_memfd);
+        }
         qemu_printf("\n");
         range++;
     }
