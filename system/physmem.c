@@ -1472,6 +1472,7 @@ static void *file_ram_alloc(RAMBlock *block,
     qemu_map_flags |= (block->flags & RAM_SHARED) ? QEMU_MAP_SHARED : 0;
     qemu_map_flags |= (block->flags & RAM_PMEM) ? QEMU_MAP_SYNC : 0;
     qemu_map_flags |= (block->flags & RAM_NORESERVE) ? QEMU_MAP_NORESERVE : 0;
+    qemu_map_flags |= (block->flags & RAM_GUEST_MEMFD) ? QEMU_MAP_SHARED : 0;
     area = qemu_ram_mmap(fd, memory, block->mr->align, qemu_map_flags, offset);
     if (area == MAP_FAILED) {
         error_setg_errno(errp, errno,
@@ -2041,12 +2042,18 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
     new_block->resized = resized;
     new_block->flags = ram_flags;
     new_block->guest_memfd = -1;
-    new_block->host = file_ram_alloc(new_block, max_size, fd,
-                                     file_size < offset + max_size,
-                                     offset, errp);
-    if (!new_block->host) {
-        g_free(new_block);
-        return NULL;
+
+    if (ram_flags & RAM_GUEST_MEMFD) {
+        /* bypass the mmap() in ram_block_add() so we can map guest_memfd instead */
+        new_block->host = (void *)1;
+    } else {
+        new_block->host = file_ram_alloc(new_block, max_size, fd,
+                                         file_size < offset + max_size,
+                                         offset, errp);
+        if (!new_block->host) {
+            g_free(new_block);
+            return NULL;
+        }
     }
 
     ram_block_add(new_block, &local_err);
@@ -2055,8 +2062,21 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
         error_propagate(errp, local_err);
         return NULL;
     }
-    return new_block;
 
+    if (ram_flags & RAM_GUEST_MEMFD) {
+        g_assert(new_block->guest_memfd >= 0);
+        g_warning("%s: allocating RAM for guest_memfd %d", __func__, new_block->guest_memfd);
+        new_block->host = file_ram_alloc(new_block, max_size, new_block->guest_memfd,
+                                         file_size < offset + max_size,
+                                         offset, errp);
+        if (!new_block->host) {
+            g_warning("%s: failed to mmap() guest_memfd: %s", __func__, *errp ? error_get_pretty(*errp) : "?");
+            g_free(new_block);
+            return NULL;
+        }
+    }
+
+    return new_block;
 }
 
 
@@ -2162,7 +2182,7 @@ RAMBlock *qemu_ram_alloc_internal(ram_addr_t size, ram_addr_t max_size,
         if (!share_flags && current_machine->aux_ram_share) {
             ram_flags |= RAM_SHARED;
         }
-        if (ram_flags & RAM_SHARED) {
+        if (ram_flags & RAM_SHARED || ram_flags & RAM_GUEST_MEMFD) {
             bool reused;
             g_autofree char *name = cpr_name(mr);
             int fd = qemu_ram_get_shared_fd(name, &reused, errp);

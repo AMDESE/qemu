@@ -43,6 +43,7 @@ memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
         return false;
     }
 
+    g_warning("%s: name %s fd %d", __func__, name, fd);
     if (fd >= 0) {
         goto have_fd;
     }
