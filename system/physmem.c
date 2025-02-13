@@ -56,6 +56,7 @@
 #include "system/hostmem.h"
 #include "system/hw_accel.h"
 #include "system/xen-mapcache.h"
+#include "system/confidential-guest-support.h"
 #include "trace.h"
 
 #ifdef CONFIG_FALLOCATE_PUNCH_HOLE
@@ -1472,6 +1473,7 @@ static void *file_ram_alloc(RAMBlock *block,
     qemu_map_flags |= (block->flags & RAM_SHARED) ? QEMU_MAP_SHARED : 0;
     qemu_map_flags |= (block->flags & RAM_PMEM) ? QEMU_MAP_SYNC : 0;
     qemu_map_flags |= (block->flags & RAM_NORESERVE) ? QEMU_MAP_NORESERVE : 0;
+    qemu_map_flags |= (block->flags & RAM_GUEST_MEMFD) ? QEMU_MAP_SHARED : 0;
     area = qemu_ram_mmap(fd, memory, block->mr->align, qemu_map_flags, offset);
     if (area == MAP_FAILED) {
         error_setg_errno(errp, errno,
@@ -1886,6 +1888,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
 
     if (new_block->flags & RAM_GUEST_MEMFD) {
         int ret;
+        uint64_t gmem_flags = 0;
 
         if (!kvm_enabled()) {
             error_setg(errp, "cannot set up private guest memory for %s: KVM required",
@@ -1902,8 +1905,12 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             goto out_free;
         }
 
+#define GUEST_MEMFD_FLAG_SUPPORT_SHARED (1UL << 0)
+        if (current_machine->cgs && current_machine->cgs->convert_in_place)
+            gmem_flags |= GUEST_MEMFD_FLAG_SUPPORT_SHARED;
+
         new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
-                                                        0, errp);
+                                                        gmem_flags, errp);
         if (new_block->guest_memfd < 0) {
             qemu_mutex_unlock_ramlist();
             goto out_free;
@@ -2041,12 +2048,21 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
     new_block->resized = resized;
     new_block->flags = ram_flags;
     new_block->guest_memfd = -1;
-    new_block->host = file_ram_alloc(new_block, max_size, fd,
-                                     file_size < offset + max_size,
-                                     offset, errp);
-    if (!new_block->host) {
-        g_free(new_block);
-        return NULL;
+
+    if (current_machine->cgs && current_machine->cgs->convert_in_place) {
+        /*
+         * HACK: bypass the mmap() in ram_block_add() so we can map guest_memfd
+         * instead
+         */
+        new_block->host = (void *)1;
+    } else {
+        new_block->host = file_ram_alloc(new_block, max_size, fd,
+                                         file_size < offset + max_size,
+                                         offset, errp);
+        if (!new_block->host) {
+            g_free(new_block);
+            return NULL;
+        }
     }
 
     ram_block_add(new_block, &local_err);
@@ -2055,8 +2071,21 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
         error_propagate(errp, local_err);
         return NULL;
     }
-    return new_block;
 
+    if (current_machine->cgs && current_machine->cgs->convert_in_place) {
+        g_assert(new_block->guest_memfd >= 0);
+        g_warning("%s: allocating RAM for guest_memfd %d", __func__, new_block->guest_memfd);
+        new_block->host = file_ram_alloc(new_block, max_size, new_block->guest_memfd,
+                                         file_size < offset + max_size,
+                                         offset, errp);
+        if (!new_block->host) {
+            g_warning("%s: failed to mmap() guest_memfd: %s", __func__, *errp ? error_get_pretty(*errp) : "?");
+            g_free(new_block);
+            return NULL;
+        }
+    }
+
+    return new_block;
 }
 
 
@@ -2162,7 +2191,8 @@ RAMBlock *qemu_ram_alloc_internal(ram_addr_t size, ram_addr_t max_size,
         if (!share_flags && current_machine->aux_ram_share) {
             ram_flags |= RAM_SHARED;
         }
-        if (ram_flags & RAM_SHARED) {
+
+        if (ram_flags & RAM_SHARED || ram_flags & RAM_GUEST_MEMFD) {
             bool reused;
             g_autofree char *name = cpr_name(mr);
             int fd = qemu_ram_get_shared_fd(name, &reused, errp);
@@ -2184,6 +2214,20 @@ RAMBlock *qemu_ram_alloc_internal(ram_addr_t size, ram_addr_t max_size,
              * with a larger max size than old, so pass reused to grow the
              * region if necessary.  The extra space will be usable after a
              * guest reset.
+             *
+             * HACK: this is awkward guest_memfd with in-place conversion. The
+             * guest_memfd hasn't been created yet, but it will be somewhere
+             * within qemu_ram_alloc_from_fd(). But prior to that, the code uses
+             * a file descriptor to probe for values like the backend page-size.
+             * However with guest_memfd+in-place conversion, the FD associated
+             * with the backend won't be used at all, so we are essentially
+             * passing in a dummy fd here. This also possibly makes this
+             * functionality somewhat dependent on having an FD-based memory
+             * backend, even though it doesn't get used for any memory. And yet,
+             * that still makes more sense than a non-FD-based backend that also
+             * would not be used for memory. Ultimately it seems like a dedicated
+             * gmem-aware backend or some other mechanism might be the better way
+             * to handle this, but just work around things for now.
              */
             new_block = qemu_ram_alloc_from_fd(size, max_size, resized, mr,
                                                ram_flags, fd, 0, reused, NULL);
