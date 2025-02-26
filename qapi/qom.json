@@ -912,6 +912,9 @@
 # @allowed-sev-features: true if secure allowed-sev-features feature
 #     is to be enabled in an SEV-ES or SNP guest. (default: false)
 #
+# @secure-avic: true if Secure AVIC feature is to be enabled in an
+#     SNP guest. (default: false)
+#
 # Since: 9.1
 ##
 { 'struct': 'SevCommonProperties',
@@ -919,7 +922,8 @@
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
             '*kernel-hashes': 'bool',
-            '*allowed-sev-features': 'bool' } }
+            '*allowed-sev-features': 'bool',
+            '*secure-avic': 'bool' } }
 
 ##
 # @SevGuestProperties:

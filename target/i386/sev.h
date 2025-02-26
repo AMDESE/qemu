@@ -34,6 +34,7 @@
 #define SEV_SNP_POLICY_SMT      0x10000
 #define SEV_SNP_POLICY_DBG      0x80000
 
+#define SEV_VMSA_SECURE_AVIC	BIT_ULL(16)
 #define SEV_VMSA_ALLOWED_SEV_FEATURES BIT_ULL(63)
 
 typedef struct SevKernelLoaderContext {

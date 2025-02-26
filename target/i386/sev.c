@@ -2099,6 +2099,19 @@ sev_snp_guest_set_allowed_sev_features(Object *obj, bool value, Error **errp)
         SEV_COMMON(obj)->vmsa_features |= SEV_VMSA_ALLOWED_SEV_FEATURES;
 }
 
+static bool
+sev_snp_guest_get_secure_avic(Object *obj, Error **errp)
+{
+    return SEV_COMMON(obj)->vmsa_features & SEV_VMSA_SECURE_AVIC;
+}
+
+static void
+sev_snp_guest_set_secure_avic(Object *obj, bool value, Error **errp)
+{
+    if (value)
+        SEV_COMMON(obj)->vmsa_features |= SEV_VMSA_SECURE_AVIC;
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -2121,6 +2134,11 @@ sev_common_class_init(ObjectClass *oc, void *data)
                                    sev_snp_guest_set_allowed_sev_features);
     object_class_property_set_description(oc, "allowed-sev-features",
             "Enable the Allowed SEV Features feature");
+    object_class_property_add_bool(oc, "secure-avic",
+                                   sev_snp_guest_get_secure_avic,
+                                   sev_snp_guest_set_secure_avic);
+    object_class_property_set_description(oc, "secure-avic",
+            "Enable the Secure AVIC feature");
 }
 
 static void
