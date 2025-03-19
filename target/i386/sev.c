@@ -1845,11 +1845,43 @@ static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         return -1;
     }
 
-    if (sev_snp_guest->certs_filename &&
-        kvm_vm_enable_cap(kvm_state, KVM_CAP_EXIT_SNP_REQ_CERTS, 0, 1)) {
-        error_setg(errp, "Failed to enable support for SEV-SNP "
-                         "certificate-fetching requests.");
-        return -1;
+    if (sev_snp_guest->certs_filename) {
+        unsigned long certs_attr = 423;
+        struct kvm_device_attr attr = {
+            .group = KVM_X86_GRP_SEV,
+            .attr = KVM_X86_SEV_SNP_REQ_CERTS,
+            .addr = (unsigned long) &certs_attr
+        };
+
+        bool sys_attr = kvm_check_extension(kvm_state, KVM_CAP_SYS_ATTRIBUTES);
+        if (!sys_attr) {
+            return -2;
+        }
+
+        int rc = kvm_ioctl(kvm_state, KVM_GET_DEVICE_ATTR, &attr);
+        if (rc < 0) {
+            if (rc != -ENXIO) {
+                error_setg(errp, "Certificate-fetching attribute not present, rc %d attr %ld", rc, certs_attr);
+                return -3;
+            }
+            return -4;
+        }
+
+        warn_report("KVM_GET_DEVICE_ATTR(KVM_X86_GRP_SEV, KVM_X86_SEV_SNP_REQ_CERTS), rc %d attr %ld", rc, certs_attr);
+
+        if (!certs_attr) {
+            error_setg(errp, "Certificate-fetching attribute not set, rc %d attr %ld", rc, certs_attr);
+            return -5;
+        }
+
+        int ret = sev_ioctl(SEV_COMMON(sev_snp_guest)->sev_fd,
+                            KVM_SEV_SNP_ENABLE_REQ_CERTS,
+                            NULL, NULL);
+        if (ret) {
+            error_setg(errp, "Failed to enable support for SEV-SNP "
+                             "certificate-fetching requests.");
+            return ret;
+        }
     }
 
     return 0;
