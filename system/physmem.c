@@ -1917,6 +1917,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         if (!(current_machine->cgs && current_machine->cgs->convert_in_place)) {
             int ret = ram_block_discard_require(true);
 
+            printf("+++Q+++ (%u) %s %u\n", getpid(), __func__, __LINE__);
             if (ret < 0) {
                 error_setg_errno(errp, -ret,
                                  "cannot set up private guest memory: discard currently blocked");
