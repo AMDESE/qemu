@@ -1904,7 +1904,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
     }
 
     if (new_block->flags & RAM_GUEST_MEMFD) {
-        int ret;
+//        int ret;
         uint64_t gmem_flags = 0;
 
         if (!kvm_enabled()) {
@@ -1914,13 +1914,13 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         }
         assert(new_block->guest_memfd < 0);
 
-        ret = ram_block_discard_require(true);
-        if (ret < 0) {
-            error_setg_errno(errp, -ret,
-                             "cannot set up private guest memory: discard currently blocked");
-            error_append_hint(errp, "Are you using assigned devices?\n");
-            goto out_free;
-        }
+//        ret = ram_block_discard_require(true);
+//        if (ret < 0) {
+//            error_setg_errno(errp, -ret,
+//                             "cannot set up private guest memory: discard currently blocked");
+//            error_append_hint(errp, "Are you using assigned devices?\n");
+//            goto out_free;
+//        }
 
 //#define GUEST_MEMFD_FLAG_SUPPORT_SHARED (1UL << 0)
         if (current_machine->cgs && current_machine->cgs->convert_in_place)
@@ -2348,7 +2348,7 @@ static void reclaim_ramblock(RAMBlock *block)
 
     if (block->guest_memfd >= 0) {
         close(block->guest_memfd);
-        ram_block_discard_require(false);
+        //ram_block_discard_require(false);
     }
 
     g_free(block);
