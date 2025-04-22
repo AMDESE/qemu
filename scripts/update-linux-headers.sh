@@ -179,6 +179,9 @@ EOF
         # unnecessary import of several video/ist/etc headers
         sed -e '/__ASSEMBLY__/,/__ASSEMBLY__/d' \
                "$hdrdir/include/asm/bootparam.h" > "$hdrdir/bootparam.h"
+        # Newer kernels now use __ASSEMBLER__ so try that as well
+        sed -e '/__ASSEMBLER__/,/__ASSEMBLER__/d' \
+               "$hdrdir/include/asm/bootparam.h" > "$hdrdir/bootparam.h"
         cp_portable "$hdrdir/bootparam.h" \
                     "$output/include/standard-headers/asm-$arch"
         cp_portable "$hdrdir/include/asm/setup_data.h" \
