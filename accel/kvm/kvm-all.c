@@ -614,7 +614,13 @@ static int kvm_mem_flags(MemoryRegion *mr)
     }
     if (memory_region_has_guest_memfd(mr)) {
         assert(kvm_guest_memfd_supported);
-        flags |= KVM_MEM_GUEST_MEMFD;
+
+        if (mr->ram_device) {
+            printf("+++Q+++ (%u) %s %u: VFIO DMABUF %s\n", getpid(), __func__, __LINE__, mr->name);
+            flags |= KVM_MEM_VFIO_DMABUF;
+        } else {
+            flags |= KVM_MEM_GUEST_MEMFD;
+        }
     }
     return flags;
 }
@@ -1445,6 +1451,7 @@ static int gmem_set_shareability(hwaddr start, uint64_t size, bool shareable)
     if (ret) {
         error_report("Conversion failed for guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " ret %d",
                      rb->guest_memfd, gmem_start, start, ret);
+        vm_stop(RUN_STATE_INTERNAL_ERROR);
     }
 
     memory_region_unref(mrs.mr);
