@@ -30,6 +30,7 @@
 #include "qemu/error-report.h"
 #include "qemu/units.h"
 #include "monitor/monitor.h"
+#include "exec/ramblock.h"
 
 /*
  * Common VFIO interrupt disable
@@ -458,6 +459,28 @@ int vfio_region_mmap(VFIORegion *region)
                                region->mmaps[i].offset,
                                region->mmaps[i].offset +
                                region->mmaps[i].size - 1);
+
+        struct {
+            struct vfio_device_feature f;
+            struct vfio_device_feature_dma_buf b;
+            struct vfio_region_dma_range r;
+        } feat = {
+            .f.argsz = sizeof(feat),
+            .f.flags = VFIO_DEVICE_FEATURE_DMA_BUF | VFIO_DEVICE_FEATURE_GET,
+            .b.open_flags = 0,
+            .b.nr_ranges = 1,
+            .b.region_index = region->nr,
+            .r.offset = region->mmaps[i].offset,
+            .r.length = region->mmaps[i].size,
+        };
+
+        int ret1 = ioctl(region->vbasedev->fd, VFIO_DEVICE_FEATURE, &feat);
+        if (ret1 < 0) {
+            warn_report("%s: Failed to GET gmemfd %d", region->vbasedev->name, ret1);
+            exit(-200);
+        } else {
+            region->mmaps[i].mem.ram_block->guest_memfd = ret1;
+        }
     }
 
     return 0;
