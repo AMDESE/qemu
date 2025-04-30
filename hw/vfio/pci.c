@@ -44,6 +44,7 @@
 #include "migration/blocker.h"
 #include "migration/qemu-file.h"
 #include "system/iommufd.h"
+#include "exec/ramblock.h"
 
 #define TYPE_VFIO_PCI_NOHOTPLUG "vfio-pci-nohotplug"
 
@@ -1779,6 +1780,33 @@ static void vfio_bar_register(VFIOPCIDevice *vdev, int nr)
         if (vfio_region_mmap(&bar->region)) {
             error_report("Failed to mmap %s BAR %d. Performance may be slow",
                          vdev->vbasedev.name, nr);
+        }
+
+        VFIORegion *region = &bar->region;
+        VFIODevice *vbasedev = &vdev->vbasedev;
+
+        /*if (bar->region.flags & VFIO_REGION_INFO_FLAG_PRIVATE)*/ {
+            struct {
+                struct vfio_device_feature f;
+                struct vfio_device_feature_dma_buf b;
+                struct vfio_region_dma_range r;
+            } feat = {
+                .f.argsz = sizeof(feat),
+                .f.flags = VFIO_DEVICE_FEATURE_DMA_BUF | VFIO_DEVICE_FEATURE_GET,
+                .b.open_flags = 0,
+                .b.nr_ranges = 1,
+                .r.region_index = region->nr,
+                .r.offset = 0,
+                .r.length = region->size,
+            };
+
+            int ret1 = ioctl(vbasedev->fd, VFIO_DEVICE_FEATURE, &feat);
+            if (ret1 < 0) {
+                warn_report("%s: Failed to GET gmemfd %d", vbasedev->name, ret1);
+            } else {
+                //region->mem->ram_block->guest_memfd = ret1;
+                region->mmaps[0].mem.ram_block->guest_memfd = ret1;
+            }
         }
     }
 

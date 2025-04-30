@@ -86,6 +86,11 @@ static bool iommufd_cdev_connect_and_bind(VFIODevice *vbasedev, Error **errp)
         goto err_kvm_device_add;
     }
 
+//    if (vbasedev->tee_io) {
+//        bind.flags |= VFIO_DEVICE_BIND_IOMMUFD_PRIVATE;
+//        printf("+++Q+++ (%u) %s %u: Private bind\n", getpid(), __func__, __LINE__);
+//    }
+
     /* Bind device to iommufd */
     bind.iommufd = iommufd->fd;
     if (ioctl(vbasedev->fd, VFIO_DEVICE_BIND_IOMMUFD, &bind)) {
