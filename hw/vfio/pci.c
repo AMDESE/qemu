@@ -3439,14 +3439,14 @@ static int vfio_pci_tsm_bind(PCIDevice *pdev, int kvmfd, Error **errp)
 
 static int vfio_pci_tsm_guest_request(PCIDevice *pdev, void *req, size_t reqlen,
                                       void *rsp, size_t rsplen,
-                                      const uint8_t *nonce, bool remap, int *fw_err)
+                                      bool remap, bool run, int *fw_err)
 {
     VFIOPCIDevice *vdev = VFIO_PCI(pdev);
     int ret;
     uint16_t bme = 1;//pci_get_word(pdev->config + PCI_COMMAND) & PCI_COMMAND_MASTER;
 
-    ret = vfio_tsm_guest_request(&vdev->vbasedev, req, reqlen, rsp, rsplen, nonce,
-                                 bme && remap, fw_err);
+    ret = vfio_tsm_guest_request(&vdev->vbasedev, req, reqlen, rsp, rsplen,
+                                 bme && remap, run, fw_err);
 
     return ret;
 }

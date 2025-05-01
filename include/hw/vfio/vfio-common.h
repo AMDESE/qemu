@@ -347,6 +347,6 @@ int vfio_device_get_aw_bits(VFIODevice *vdev);
 int vfio_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp);
 int vfio_tsm_guest_request(VFIODevice *vbasedev, void *req, size_t reqlen,
                            void *rsp, size_t rsplen,
-                           const uint8_t *nonce, bool remap, int *fw_err);
+                           bool remap, bool run, int *fw_err);
 
 #endif /* HW_VFIO_VFIO_COMMON_H */

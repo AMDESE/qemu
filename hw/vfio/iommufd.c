@@ -827,20 +827,25 @@ static int iommufd_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
 static int iommufd_tsm_guest_request(VFIODevice *vbasedev,
                                      void *req, size_t reqlen,
                                      void *rsp, size_t rsplen,
-                                     const uint8_t *nonce, bool remap,
-                                     int *fw_err)
+                                     bool remap, bool run, int *fw_err)
 {
     VFIOContainerBase *bcontainer = vbasedev->bcontainer;
     HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vbasedev->hiod);
     int ret;
 
+    /*
+     * Remap as at this point RMP must be enabled and IOMMU can map memory
+     * to match RMP granularity. Really only needed when going
+     * insecure->secure as going the other way does not require remapping
+     * (which may be desirable yet as it might use bigger pages).
+     */
     if (remap) {
         memory_listener_unregister(&bcontainer->listener);
     }
 
     ret = iommufd_backend_tsm_guest_request(idev->iommufd->vdevice,
-                                             req, reqlen, rsp, rsplen,
-                                             nonce, remap, fw_err);
+                                            req, reqlen, rsp, rsplen,
+                                            run, fw_err);
 
     if (remap) {
         bcontainer->listener = vfio_memory_listener;

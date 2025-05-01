@@ -147,6 +147,5 @@ int iommufd_backend_tsm_bind(struct IOMMUFDVdev *vdev, int kvmfd);
 int iommufd_backend_tsm_guest_request(struct IOMMUFDVdev *vdev,
                                       void *req, size_t reqlen,
                                       void *rsp, size_t rsplen,
-                                      const uint8_t *nonce, bool run,
-                                      int *fw_err);
+                                      bool run, int *fw_err);
 #endif

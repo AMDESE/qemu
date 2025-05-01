@@ -375,7 +375,7 @@ struct PCIETSMIfClass {
     int (*tsm_bind)(PCIDevice *pdev, int kvmfd, Error **errp);
     int (*tsm_guest_request)(PCIDevice *vdev, void *req, size_t reqlen,
                              void *rsp, size_t rsplen,
-                             const uint8_t *nonce, bool remap, int *fw_err);
+                             bool remap, bool run, int *fw_err);
 };
 
 #endif

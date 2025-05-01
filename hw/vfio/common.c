@@ -1512,18 +1512,16 @@ int vfio_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
 }
 
 int vfio_tsm_guest_request(VFIODevice *vbasedev, void *req, size_t reqlen,
-                           void *rsp, size_t rsplen, const uint8_t *nonce,
-                           bool remap, int *fw_err)
+                           void *rsp, size_t rsplen, bool remap, bool run, int *fw_err)
 {
     int rc = -ENOTSUP;
     const VFIOIOMMUClass *ops = VFIO_IOMMU_GET_CLASS(vbasedev->bcontainer);
 
     if (ops->tsm_guest_request) {
-        rc = ops->tsm_guest_request(vbasedev, req, reqlen, rsp, rsplen, nonce, remap, fw_err);
+        rc = ops->tsm_guest_request(vbasedev, req, reqlen, rsp, rsplen, remap, run, fw_err);
     }
 
-    trace_vfio_tsm_guest_request(vbasedev->name, vbasedev->fd,
-                                 nonce ? *(uint64_t *) nonce : 0, rc);
+    trace_vfio_tsm_guest_request(vbasedev->name, vbasedev->fd, rc);
     return rc;
 }
 

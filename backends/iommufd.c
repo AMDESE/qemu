@@ -447,8 +447,7 @@ int iommufd_backend_tsm_bind(struct IOMMUFDVdev *vdev, int kvmfd)
 int iommufd_backend_tsm_guest_request(struct IOMMUFDVdev *vdev,
                                       void *req, size_t reqlen,
                                       void *rsp, size_t rsplen,
-                                      const uint8_t *nonce, bool run,
-                                      int *fw_err)
+                                      bool run, int *fw_err)
 {
     IOMMUFDViommu *viommu = vdev->viommu;
     HostIOMMUDeviceIOMMUFD *idev = vdev->idev;
@@ -469,9 +468,6 @@ int iommufd_backend_tsm_guest_request(struct IOMMUFDVdev *vdev,
         return 0;
     }
 
-    if (nonce) {
-        memcpy(gr.measurements_nonce, nonce, sizeof(gr.measurements_nonce));
-    }
     if (run) {
         gr.flags |= IOMMU_VDEVICE_TSM_GUEST_REQUEST_RUN;
     }

@@ -123,7 +123,7 @@ vfio_get_dirty_bitmap(uint64_t iova, uint64_t size, uint64_t bitmap_size, uint64
 vfio_iommu_map_dirty_notify(uint64_t iova_start, uint64_t iova_end) "iommu dirty @ 0x%"PRIx64" - 0x%"PRIx64
 vfio_reset_handler(void) ""
 vfio_tsm_bind(const char *name, int fd, int rc, int _errno) "%s fd %d => rc=%d errno=%d"
-vfio_tsm_guest_request(const char *name, int fd, uint64_t nonce, int rc) "%s, fd %d, nonce=%016"PRIx64"..., rc=%d"
+vfio_tsm_guest_request(const char *name, int fd, int rc) "%s, fd %d, rc=%d"
 
 # platform.c
 vfio_platform_realize(char *name, char *compat) "vfio device %s, compat = %s"
