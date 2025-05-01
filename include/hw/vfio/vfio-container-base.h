@@ -52,6 +52,7 @@ typedef struct VFIOContainerBase {
     GList *iova_ranges;
     NotifierWithReturn cpr_reboot_notifier;
     bool discard_shared;
+    uint64_t vtom_addr;
 } VFIOContainerBase;
 
 typedef struct VFIOGuestIOMMU {
@@ -164,5 +165,10 @@ struct VFIOIOMMUClass {
     void (*del_window)(VFIOContainerBase *bcontainer,
                        MemoryRegionSection *section);
     void (*release)(VFIOContainerBase *bcontainer);
+
+    int (*tsm_bind)(VFIODevice *vdev, int kvmfd, Error **errp);
+    int (*tsm_guest_request)(VFIODevice *vdev, void *req, size_t reqlen,
+                             void *rsp, size_t rsplen, int *fw_err);
+    int (*tsm_remap)(VFIODevice *vdev, uint64_t addr, Error **errp);
 };
 #endif /* HW_VFIO_VFIO_CONTAINER_BASE_H */

@@ -34,9 +34,16 @@ static int iommufd_cdev_map(const VFIOContainerBase *bcontainer, hwaddr iova,
     const VFIOIOMMUFDContainer *container =
         container_of(bcontainer, VFIOIOMMUFDContainer, bcontainer);
 
-    return iommufd_backend_map_dma(container->be,
+    int ret = iommufd_backend_map_dma(container->be,
                                    container->ioas_id,
                                    iova, size, vaddr, readonly, memfd);
+    if (ret || memfd == -1 || !bcontainer->vtom_addr) {
+        return ret;
+    }
+    return iommufd_backend_map_dma(container->be,
+                                   container->ioas_id,
+                                   iova + bcontainer->vtom_addr,
+                                   size, vaddr, readonly, memfd);
 }
 
 static int iommufd_cdev_unmap(const VFIOContainerBase *bcontainer,
@@ -47,8 +54,15 @@ static int iommufd_cdev_unmap(const VFIOContainerBase *bcontainer,
         container_of(bcontainer, VFIOIOMMUFDContainer, bcontainer);
 
     /* TODO: Handle dma_unmap_bitmap with iotlb args (migration) */
-    return iommufd_backend_unmap_dma(container->be,
+    int ret = iommufd_backend_unmap_dma(container->be,
                                      container->ioas_id, iova, size, memfd);
+    if (ret || memfd == -1 || !bcontainer->vtom_addr) {
+        return ret;
+    }
+    return iommufd_backend_unmap_dma(container->be,
+                                     container->ioas_id,
+                                     iova + bcontainer->vtom_addr,
+                                     size, memfd);
 }
 
 static bool iommufd_cdev_kvm_device_add(VFIODevice *vbasedev, Error **errp)
@@ -805,6 +819,46 @@ out_single:
     return ret;
 }
 
+static int iommufd_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
+{
+    HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vbasedev->hiod);
+
+    return iommufd_backend_tsm_bind(idev->iommufd->vdevice, kvmfd);
+}
+
+static int iommufd_tsm_guest_request(VFIODevice *vbasedev,
+                                     void *req, size_t reqlen,
+                                     void *rsp, size_t rsplen,
+                                     int *fw_err)
+{
+    HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vbasedev->hiod);
+    int ret;
+
+    if (idev->iommufd->vdevice) {
+        ret = iommufd_backend_tsm_guest_request(idev->iommufd->vdevice,
+                                                req, reqlen, rsp, rsplen,
+                                                fw_err);
+    } else {
+        printf("+++Q+++ (%u) %s %u: iommufd_backend_free_id'ed\n", getpid(), __func__, __LINE__);
+    }
+
+    return ret;
+}
+
+static int iommufd_tsm_remap(VFIODevice *vbasedev, uint64_t addr, Error **errp)
+{
+    VFIOContainerBase *bcontainer = vbasedev->bcontainer;
+
+    memory_listener_unregister(&bcontainer->listener);
+
+    bcontainer->vtom_addr = addr;
+
+    bcontainer->listener = vfio_memory_listener;
+    memory_listener_register(&bcontainer->listener, bcontainer->space->as);
+
+    return 0;
+}
+
 static void vfio_iommu_iommufd_class_init(ObjectClass *klass, void *data)
 {
     VFIOIOMMUClass *vioc = VFIO_IOMMU_CLASS(klass);
@@ -818,6 +872,9 @@ static void vfio_iommu_iommufd_class_init(ObjectClass *klass, void *data)
     vioc->pci_hot_reset = iommufd_cdev_pci_hot_reset;
     vioc->set_dirty_page_tracking = iommufd_set_dirty_page_tracking;
     vioc->query_dirty_bitmap = iommufd_query_dirty_bitmap;
+    vioc->tsm_bind = iommufd_tsm_bind;
+    vioc->tsm_guest_request = iommufd_tsm_guest_request;
+    vioc->tsm_remap = iommufd_tsm_remap;
 };
 
 static bool
