@@ -34,6 +34,7 @@ struct IOMMUFDBackend {
     bool owned;        /* is the /dev/iommu opened internally */
     uint32_t users;
     struct IOMMUFDViommu *viommu;
+    struct IOMMUFDVdev *vdevice;
 
     /*< public >*/
 };
@@ -90,6 +91,7 @@ struct HostIOMMUDeviceIOMMUFD {
     IOMMUFDBackend *iommufd;
     uint32_t devid;
     uint32_t ioas_id;
+    bool tdi_bound;
 };
 
 struct HostIOMMUDeviceIOMMUFDClass {
@@ -141,4 +143,9 @@ typedef struct IOMMUFDVdev {
 struct IOMMUFDVdev *iommufd_backend_alloc_vdev(HostIOMMUDeviceIOMMUFD *idev,
                                                IOMMUFDViommu *viommu,
                                                uint64_t virt_id);
+int iommufd_backend_tsm_bind(struct IOMMUFDVdev *vdev, int kvmfd);
+int iommufd_backend_tsm_guest_request(struct IOMMUFDVdev *vdev,
+                                      void *req, size_t reqlen,
+                                      void *rsp, size_t rsplen,
+                                      const uint8_t *nonce, int *fw_err);
 #endif

@@ -416,6 +416,71 @@ struct IOMMUFDVdev *iommufd_backend_alloc_vdev(HostIOMMUDeviceIOMMUFD *idev,
     return vdev;
 }
 
+int iommufd_backend_tsm_bind(struct IOMMUFDVdev *vdev, int kvmfd)
+{
+    IOMMUFDViommu *viommu = vdev->viommu;
+    HostIOMMUDeviceIOMMUFD *idev = vdev->idev;
+    int ret, fd = viommu->iommufd->fd;
+    struct iommu_vdevice_tsm_bind b = {
+        .size = sizeof(b),
+        .viommu_id = viommu->viommu_id,
+        .dev_id = idev->devid,
+        .vdevice_id = viommu->iommufd->vdevice->vdev_id,
+        .kvmfd = kvmfd,
+    };
+
+    if (idev->tdi_bound) {
+        return 0;
+    }
+
+    ret = ioctl(fd, IOMMU_VDEVICE_TSM_BIND, &b);
+    if (ret < 0) {
+        error_report("vfio: failed to bind TEE IO dev %X to CoCo VM: %s",
+                     viommu->iommufd->vdevice->vdev_id, strerror(errno));
+        return ret;
+    }
+    idev->tdi_bound = true;
+
+    return ret;
+}
+
+int iommufd_backend_tsm_guest_request(struct IOMMUFDVdev *vdev,
+                                      void *req, size_t reqlen,
+                                      void *rsp, size_t rsplen,
+                                      const uint8_t *nonce, int *fw_err)
+{
+    IOMMUFDViommu *viommu = vdev->viommu;
+    HostIOMMUDeviceIOMMUFD *idev = vdev->idev;
+    int ret, fd = viommu->iommufd->fd;
+    struct iommu_vdevice_tsm_guest_request gr = {
+        .size = sizeof(gr),
+        .viommu_id = viommu->viommu_id,
+        .dev_id = idev->devid,
+        .vdevice_id = viommu->iommufd->vdevice->vdev_id,
+        .req = req,
+        .rsp = rsp,
+        .req_len = reqlen,
+        .rsp_len = rsplen,
+    };
+
+    if (!idev->tdi_bound) {
+        return 0;
+    }
+
+    if (nonce) {
+        memcpy(gr.measurements_nonce, nonce, sizeof(gr.measurements_nonce));
+    }
+    ret = ioctl(fd, IOMMU_VDEVICE_TSM_GUEST_REQUEST, &gr);
+    if (ret < 0) {
+        error_report("vfio: failed to TIO GR dev %X to CoCo VM: %s",
+                     viommu->iommufd->vdevice->vdev_id, strerror(errno));
+        return ret;
+    }
+    *fw_err = gr.fw_err;
+
+    return ret;
+}
+
 int iommufd_viommu_invalidate_cache(IOMMUFDBackend *be, uint32_t viommu_id,
                                     uint32_t data_type, uint32_t entry_len,
                                     uint32_t *entry_num, void *data_ptr)
