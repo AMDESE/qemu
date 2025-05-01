@@ -822,8 +822,29 @@ out_single:
 static int iommufd_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
 {
     HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vbasedev->hiod);
+    VFIOPCIDevice *vfio_pci_dev = (VFIOPCIDevice *)
+        object_dynamic_cast(OBJECT(vbasedev->dev), TYPE_VFIO_PCI);
+    IOMMUFDBackend *iommufd = vbasedev->iommufd;
+    int ret;
 
-    return iommufd_backend_tsm_bind(idev->iommufd->vdevice, kvmfd);
+    if (!iommufd->vdevice && !idev->tdi_bound) {
+        iommufd->vdevice = iommufd_backend_alloc_vdev(idev, iommufd->viommu,
+                                                      pci_get_bdf(&vfio_pci_dev->pdev));
+        if (!iommufd->vdevice) {
+            error_setg(errp, "failed to allocate a vdevice");
+            return -1;
+        }
+    }
+
+    ret = iommufd_backend_tsm_bind(idev->iommufd->vdevice, kvmfd);
+
+    if (iommufd->vdevice && kvmfd == -1) {
+        iommufd_backend_free_id(iommufd, iommufd->vdevice->vdev_id);
+        g_free(iommufd->vdevice);
+        iommufd->vdevice = NULL;
+    }
+
+    return ret;
 }
 
 static int iommufd_tsm_guest_request(VFIODevice *vbasedev,
