@@ -803,6 +803,18 @@ out_single:
 static int iommufd_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
 {
     HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vbasedev->hiod);
+    VFIOPCIDevice *vfio_pci_dev = (VFIOPCIDevice *)
+        object_dynamic_cast(OBJECT(vbasedev->dev), TYPE_VFIO_PCI);
+    IOMMUFDBackend *iommufd = vbasedev->iommufd;
+
+    if (!iommufd->vdevice && !idev->tdi_bound) {
+        iommufd->vdevice = iommufd_backend_alloc_vdev(idev, iommufd->viommu,
+                                                      pci_get_bdf(&vfio_pci_dev->pdev));
+        if (!iommufd->vdevice) {
+            error_setg(errp, "failed to allocate a vdevice");
+            return -1;
+        }
+    }
 
     return iommufd_backend_tsm_bind(idev->iommufd->vdevice, kvmfd);
 }
