@@ -162,5 +162,10 @@ struct VFIOIOMMUClass {
     void (*del_window)(VFIOContainerBase *bcontainer,
                        MemoryRegionSection *section);
     void (*release)(VFIOContainerBase *bcontainer);
+
+    int (*tsm_bind)(VFIODevice *vdev, int kvmfd, Error **errp);
+    int (*tsm_guest_request)(VFIODevice *vdev, void *req, size_t reqlen,
+                             void *rsp, size_t rsplen,
+                             const uint8_t *nonce, int *fw_err);
 };
 #endif /* HW_VFIO_VFIO_CONTAINER_BASE_H */

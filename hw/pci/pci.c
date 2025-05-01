@@ -309,6 +309,12 @@ static const TypeInfo conventional_pci_interface_info = {
     .parent        = TYPE_INTERFACE,
 };
 
+
+static const TypeInfo pcie_tsm_interface_info = {
+    .name          = INTERFACE_PCIE_TSM_DEVICE,
+    .parent        = TYPE_INTERFACE,
+};
+
 static void pcie_bus_class_init(ObjectClass *klass, void *data)
 {
     BusClass *k = BUS_CLASS(klass);
@@ -3126,6 +3132,7 @@ static void pci_register_types(void)
     type_register_static(&cxl_interface_info);
     type_register_static(&pcie_interface_info);
     type_register_static(&pci_device_type_info);
+    type_register_static(&pcie_tsm_interface_info);
 }
 
 type_init(pci_register_types)

@@ -800,6 +800,25 @@ out_single:
     return ret;
 }
 
+static int iommufd_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
+{
+    HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vbasedev->hiod);
+
+    return iommufd_backend_tsm_bind(idev->iommufd->vdevice, kvmfd);
+}
+
+static int iommufd_tsm_guest_request(VFIODevice *vdev,
+                                     void *req, size_t reqlen,
+                                     void *rsp, size_t rsplen,
+                                     const uint8_t *nonce, int *fw_err)
+{
+    HostIOMMUDeviceIOMMUFD *idev = HOST_IOMMU_DEVICE_IOMMUFD(vdev->hiod);
+
+    return iommufd_backend_tsm_guest_request(idev->iommufd->vdevice,
+                                             req, reqlen, rsp, rsplen,
+                                             nonce, fw_err);
+}
+
 static void vfio_iommu_iommufd_class_init(ObjectClass *klass, void *data)
 {
     VFIOIOMMUClass *vioc = VFIO_IOMMU_CLASS(klass);
@@ -813,6 +832,8 @@ static void vfio_iommu_iommufd_class_init(ObjectClass *klass, void *data)
     vioc->pci_hot_reset = iommufd_cdev_pci_hot_reset;
     vioc->set_dirty_page_tracking = iommufd_set_dirty_page_tracking;
     vioc->query_dirty_bitmap = iommufd_query_dirty_bitmap;
+    vioc->tsm_bind = iommufd_tsm_bind;
+    vioc->tsm_guest_request = iommufd_tsm_guest_request;
 };
 
 static bool
