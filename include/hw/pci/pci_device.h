@@ -364,4 +364,18 @@ extern const VMStateDescription vmstate_pci_device;
     .offset     = vmstate_offset_pointer(_state, _field, PCIDevice), \
 }
 
+#define INTERFACE_PCIE_TSM_DEVICE "pci-express-tsm-device-if"
+typedef struct PCIETSMIfClass PCIETSMIfClass;
+
+DECLARE_CLASS_CHECKERS(PCIETSMIfClass, PCIE_TSM_DEVICE, INTERFACE_PCIE_TSM_DEVICE)
+
+struct PCIETSMIfClass {
+    InterfaceClass parent;
+
+    int (*tsm_bind)(PCIDevice *pdev, int kvmfd, Error **errp);
+    int (*tsm_guest_request)(PCIDevice *vdev, void *req, size_t reqlen,
+                             void *rsp, size_t rsplen,
+                             const uint8_t *nonce, bool remap, int *fw_err);
+};
+
 #endif

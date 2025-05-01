@@ -3427,10 +3427,35 @@ static void vfio_pci_set_fd(Object *obj, const char *str, Error **errp)
 }
 #endif
 
+static int vfio_pci_tsm_bind(PCIDevice *pdev, int kvmfd, Error **errp)
+{
+    VFIOPCIDevice *vdev = VFIO_PCI(pdev);
+    int ret;
+
+    ret = vfio_tsm_bind(&vdev->vbasedev, kvmfd, errp);
+
+    return ret;
+}
+
+static int vfio_pci_tsm_guest_request(PCIDevice *pdev, void *req, size_t reqlen,
+                                      void *rsp, size_t rsplen,
+                                      const uint8_t *nonce, bool remap, int *fw_err)
+{
+    VFIOPCIDevice *vdev = VFIO_PCI(pdev);
+    int ret;
+    uint16_t bme = 1;//pci_get_word(pdev->config + PCI_COMMAND) & PCI_COMMAND_MASTER;
+
+    ret = vfio_tsm_guest_request(&vdev->vbasedev, req, reqlen, rsp, rsplen, nonce,
+                                 bme && remap, fw_err);
+
+    return ret;
+}
+
 static void vfio_pci_dev_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *pdc = PCI_DEVICE_CLASS(klass);
+    PCIETSMIfClass *tioc = PCIE_TSM_DEVICE_CLASS(klass);
 
     device_class_set_legacy_reset(dc, vfio_pci_reset);
     device_class_set_props(dc, vfio_pci_dev_properties);
@@ -3563,6 +3588,8 @@ static void vfio_pci_dev_class_init(ObjectClass *klass, void *data)
                                           "x-migration-multifd-transfer",
                                           "Transfer this device state via "
                                           "multifd channels when live migrating it");
+    tioc->tsm_bind = vfio_pci_tsm_bind;
+    tioc->tsm_guest_request = vfio_pci_tsm_guest_request;
 }
 
 static const TypeInfo vfio_pci_dev_info = {
@@ -3575,6 +3602,7 @@ static const TypeInfo vfio_pci_dev_info = {
     .interfaces = (InterfaceInfo[]) {
         { INTERFACE_PCIE_DEVICE },
         { INTERFACE_CONVENTIONAL_PCI_DEVICE },
+        { INTERFACE_PCIE_TSM_DEVICE },
         { }
     },
 };

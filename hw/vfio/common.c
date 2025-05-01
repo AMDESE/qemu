@@ -1498,6 +1498,35 @@ int vfio_kvm_device_del_fd(int fd, Error **errp)
     return 0;
 }
 
+int vfio_tsm_bind(VFIODevice *vbasedev, int kvmfd, Error **errp)
+{
+    int rc = -ENOTSUP;
+    const VFIOIOMMUClass *ops = VFIO_IOMMU_GET_CLASS(vbasedev->bcontainer);
+
+    if (ops->tsm_bind) {
+        rc = ops->tsm_bind(vbasedev, kvmfd, errp);
+    }
+
+    trace_vfio_tsm_bind(vbasedev->name, vbasedev->fd, rc, errno);
+    return rc;
+}
+
+int vfio_tsm_guest_request(VFIODevice *vbasedev, void *req, size_t reqlen,
+                           void *rsp, size_t rsplen, const uint8_t *nonce,
+                           bool remap, int *fw_err)
+{
+    int rc = -ENOTSUP;
+    const VFIOIOMMUClass *ops = VFIO_IOMMU_GET_CLASS(vbasedev->bcontainer);
+
+    if (ops->tsm_guest_request) {
+        rc = ops->tsm_guest_request(vbasedev, req, reqlen, rsp, rsplen, nonce, remap, fw_err);
+    }
+
+    trace_vfio_tsm_guest_request(vbasedev->name, vbasedev->fd,
+                                 nonce ? *(uint64_t *) nonce : 0, rc);
+    return rc;
+}
+
 VFIOAddressSpace *vfio_get_address_space(AddressSpace *as)
 {
     VFIOAddressSpace *space;
