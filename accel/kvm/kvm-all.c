@@ -3073,6 +3073,16 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
     addr = memory_region_get_ram_ptr(mr) + section.offset_within_region;
     rb = qemu_ram_block_from_host(addr, false, &offset);
 
+    /*
+     * Discarding after conversion is generally done to avoid doubling of
+     * memory usage, but this only ends up hurting performance in the case
+     * where the same memory can be re-used after the conversion, so skip
+     * discarding memory in this case.
+     */
+    if (current_machine->cgs && current_machine->cgs->convert_in_place) {
+        goto out_unref;
+    }
+
     if (to_private) {
         if (rb->page_size != qemu_real_host_page_size()) {
             /*
