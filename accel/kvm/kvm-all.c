@@ -1419,6 +1419,7 @@ static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
 {
     struct kvm_memory_attributes attrs;
     int r;
+    int retries = 0;
 
     assert((attr & kvm_supported_memory_attributes) == attr);
     attrs.attributes = attr;
@@ -1426,12 +1427,20 @@ static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
     attrs.size = size;
     attrs.flags = 0;
 
-    r = kvm_vm_ioctl(kvm_state, KVM_SET_MEMORY_ATTRIBUTES, &attrs);
-    if (r) {
-        error_report("failed to set memory (0x%" HWADDR_PRIx "+0x%" PRIx64 ") "
-                     "with attr 0x%" PRIx64 " error '%s'",
-                     start, size, attr, strerror(errno));
-    }
+    do {
+        r = kvm_vm_ioctl(kvm_state, KVM_SET_MEMORY_ATTRIBUTES, &attrs);
+        if (r && r != -EAGAIN) {
+            error_report("failed to set memory (0x%" HWADDR_PRIx "+0x%" PRIx64 ") "
+                         "with attr 0x%" PRIx64 " error '%s'",
+                         start, size, attr, strerror(errno));
+        }
+        if (r == -EAGAIN) {
+            g_warning("retrying conversion for GPA 0x%lx size 0x%lx attr 0%lx retries %d",
+                      start, size, attr, retries);
+            usleep(100 * 1000);
+        }
+    } while (r == -EAGAIN);
+
     return r;
 }
 
