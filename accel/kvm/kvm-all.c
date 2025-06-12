@@ -1415,6 +1415,54 @@ void kvm_set_max_memslot_size(hwaddr max_slot_size)
     kvm_max_slot_size = max_slot_size;
 }
 
+static bool use_in_place_conversion = true;
+
+static int gmem_set_shareability(hwaddr start, uint64_t size, bool shareable)
+{
+    MemoryRegionSection mrs = memory_region_find(get_system_memory(), start, size);
+    struct kvm_gmem_convert convert = {0};
+    uint64_t gmem_start;
+    RAMBlock *rb;
+    int ret;
+
+    if (!mrs.mr) {
+        error_report("No memory is mapped at address 0x%" HWADDR_PRIx, start);
+        return -EFAULT;
+    }
+
+    if (!memory_region_is_ram(mrs.mr) && !memory_region_is_romd(mrs.mr)) {
+        error_report("Memory at address 0x%" HWADDR_PRIx " is not RAM", start);
+        memory_region_unref(mrs.mr);
+        return -EINVAL;
+    }
+
+    rb = mrs.mr->ram_block;
+    gmem_start = mrs.offset_within_region;
+    convert.offset = gmem_start;
+    convert.size = size;
+
+    g_warning("Converting guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " to %s",
+              rb->guest_memfd, gmem_start, start, shareable ? "shared" : "private");
+    ret = kvm_gmem_ioctl(rb->guest_memfd, shareable ? KVM_GMEM_CONVERT_SHARED : KVM_GMEM_CONVERT_PRIVATE, &convert);
+    if (ret) {
+        error_report("Conversion failed for guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " ret %d",
+                     rb->guest_memfd, gmem_start, start, ret);
+    }
+
+    memory_region_unref(mrs.mr);
+    return ret;
+}
+
+static int gmem_set_shared(hwaddr start, uint64_t size)
+{
+        return gmem_set_shareability(start, size, true);
+}
+
+static int gmem_set_private(hwaddr start, uint64_t size)
+{
+        return gmem_set_shareability(start, size, false);
+}
+
 static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
 {
     struct kvm_memory_attributes attrs;
@@ -1446,11 +1494,17 @@ static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
 
 int kvm_set_memory_attributes_private(hwaddr start, uint64_t size)
 {
+    if (use_in_place_conversion)
+        return gmem_set_private(start, size);
+
     return kvm_set_memory_attributes(start, size, KVM_MEMORY_ATTRIBUTE_PRIVATE);
 }
 
 int kvm_set_memory_attributes_shared(hwaddr start, uint64_t size)
 {
+    if (use_in_place_conversion)
+        return gmem_set_shared(start, size);
+
     return kvm_set_memory_attributes(start, size, 0);
 }
 
@@ -3194,12 +3248,14 @@ int kvm_cpu_exec(CPUState *cpu)
         trace_kvm_run_exit(cpu->cpu_index, run->exit_reason);
         switch (run->exit_reason) {
         case KVM_EXIT_IO:
+            trace_kvm_run_exit(cpu->cpu_index, 10000000);
             /* Called outside BQL */
             kvm_handle_io(run->io.port, attrs,
                           (uint8_t *)run + run->io.data_offset,
                           run->io.direction,
                           run->io.size,
                           run->io.count);
+            trace_kvm_run_exit(cpu->cpu_index, 10000001);
             ret = 0;
             break;
         case KVM_EXIT_MMIO:
@@ -4455,4 +4511,21 @@ int kvm_create_guest_memfd(uint64_t size, uint64_t flags, Error **errp)
     }
 
     return fd;
+}
+
+int kvm_gmem_ioctl(int gmem_fd, unsigned long type, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, type);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    ret = ioctl(gmem_fd, type, arg);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
 }

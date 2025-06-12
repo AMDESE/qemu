@@ -1573,4 +1573,15 @@ struct kvm_pre_fault_memory {
 	__u64 padding[5];
 };
 
+#define KVM_GMEM_IO 0xAF
+#define KVM_GMEM_CONVERT_SHARED         _IOWR(KVM_GMEM_IO,  0x41, struct kvm_gmem_convert)
+#define KVM_GMEM_CONVERT_PRIVATE        _IOWR(KVM_GMEM_IO,  0x42, struct kvm_gmem_convert)
+
+struct kvm_gmem_convert {
+        __u64 offset;
+        __u64 size;
+        __u64 error_offset;
+        __u64 reserved[5];
+};
+
 #endif /* __LINUX_KVM_H */
