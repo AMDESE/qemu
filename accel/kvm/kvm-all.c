@@ -3155,6 +3155,15 @@ next_memory_region:
     convert_size = (convert_start + size > mr->size) ?
                    mr->size - convert_start : size;
 
+    ret = ram_block_attributes_state_change(RAM_BLOCK_ATTRIBUTES(mr->rdm),
+                                            offset, size, to_private);
+    if (ret) {
+        error_report("Failed to notify the listener the state change of "
+                     "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s",
+                     start, size, to_private ? "private" : "shared");
+        goto out_unref;
+    }
+
     /*
      * Discarding after conversion is generally done to avoid doubling of
      * memory usage, but this only ends up hurting performance in the case

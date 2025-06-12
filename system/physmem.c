@@ -1906,6 +1906,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
 
     if (new_block->flags & RAM_GUEST_MEMFD) {
         uint64_t gmem_flags = 0;
+        int ret;
 
         if (!kvm_enabled()) {
             error_setg(errp, "cannot set up private guest memory for %s: KVM required",
@@ -1914,15 +1915,12 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         }
         assert(new_block->guest_memfd < 0);
 
-        if (!(current_machine->cgs && current_machine->cgs->convert_in_place)) {
-            int ret = ram_block_discard_require(true);
-
-            if (ret < 0) {
-                error_setg_errno(errp, -ret,
-                                 "cannot set up private guest memory: discard currently blocked");
-                error_append_hint(errp, "Are you using assigned devices?\n");
-                goto out_free;
-            }
+        ret = ram_block_coordinated_discard_require(true);
+        if (ret < 0) {
+            error_setg_errno(errp, -ret,
+                             "cannot set up private guest memory: discard currently blocked");
+            error_append_hint(errp, "Are you using assigned devices?\n");
+            goto out_free;
         }
 
 #define GUEST_MEMFD_FLAG_MMAP (1UL << 0)
@@ -1951,6 +1949,24 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
                                                         gmem_flags, errp);
         if (new_block->guest_memfd < 0) {
+            qemu_mutex_unlock_ramlist();
+            goto out_free;
+        }
+
+        /*
+         * The attribute bitmap of the RamBlockAttributes is default to
+         * discarded, which mimics the behavior of kvm_set_phys_mem() when it
+         * calls kvm_set_memory_attributes_private(). This leads to a brief
+         * period of inconsistency between the creation of the RAMBlock and its
+         * mapping into the physical address space. However, this is not
+         * problematic, as no users rely on the attribute status to perform
+         * any actions during this interval.
+         */
+        new_block->attributes = ram_block_attributes_create(new_block);
+        if (!new_block->attributes) {
+            error_setg(errp, "Failed to create ram block attribute");
+            close(new_block->guest_memfd);
+            ram_block_coordinated_discard_require(false);
             qemu_mutex_unlock_ramlist();
             goto out_free;
         }
@@ -2351,10 +2367,9 @@ static void reclaim_ramblock(RAMBlock *block)
     }
 
     if (block->guest_memfd >= 0) {
+        ram_block_attributes_destroy(block->attributes);
         close(block->guest_memfd);
-        if (!(current_machine->cgs && current_machine->cgs->convert_in_place)) {
-            ram_block_discard_require(false);
-        }
+        ram_block_coordinated_discard_require(false);
     }
 
     g_free(block);
