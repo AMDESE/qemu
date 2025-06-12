@@ -51,6 +51,7 @@
 #include "system/hw_accel.h"
 #include "kvm-cpus.h"
 #include "system/dirtylimit.h"
+#include "system/confidential-guest-support.h"
 #include "qemu/range.h"
 #include "system/confidential-guest-support.h"
 
@@ -1626,13 +1627,122 @@ static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
     return r;
 }
 
+static int kvm_gmem_ioctl(int guest_memfd, unsigned long type, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, type);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    ret = ioctl(guest_memfd, type, arg);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
+static int guest_memfd_set_memory_attributes_fd(int guest_memfd, hwaddr offset,
+                                                uint64_t size, uint64_t attr)
+{
+    struct kvm_memory_attributes2 attrs;
+    int r;
+
+    assert((attr & kvm_supported_memory_attributes) == attr);
+    attrs.attributes = attr;
+    attrs.offset = offset;
+    attrs.size = size;
+    attrs.flags = 0;
+
+    r = kvm_gmem_ioctl(guest_memfd, KVM_SET_MEMORY_ATTRIBUTES2, &attrs);
+    if (r && r != -EAGAIN) {
+        error_report("failed to set memory (0x%" HWADDR_PRIx "+0x%" PRIx64 ") "
+                     "with attr 0x%" PRIx64 " error '%s'",
+                     offset, size, attr, strerror(errno));
+    }
+    return r;
+}
+
+/*
+ * This performs the similar operations as kvm_set_memory_attributes() would
+ * when using KVM ioctls (when vm_memory_attributes parameter is set), but
+ * unlike the KVM ioctl, a guest_memfd ioctl can only act on GPAs that the
+ * corresponding guest_memfd inode contains, hence the logic for looping
+ * through all the guest_memfd instances/MemoryRegions for a given range.
+ */
+static int guest_memfd_set_memory_attributes(hwaddr start, uint64_t size,
+                                             uint64_t attr)
+{
+    int ret;
+
+    do {
+        uint64_t convert_offset, convert_size;
+        MemoryRegionSection mrs;
+        RAMBlock *rb;
+
+        mrs = memory_region_find(get_system_memory(), start, size);
+
+        if (!mrs.mr) {
+            error_report("No memory is mapped at address 0x%" HWADDR_PRIx,
+                         start);
+            return -EFAULT;
+        }
+
+        if (!memory_region_is_ram(mrs.mr) && !memory_region_is_romd(mrs.mr)) {
+            error_report("Memory at address 0x%" HWADDR_PRIx " is not RAM",
+                         start);
+            memory_region_unref(mrs.mr);
+            return -EINVAL;
+        }
+
+        rb = mrs.mr->ram_block;
+        convert_offset = mrs.offset_within_region;
+        convert_size = (convert_offset + size > mrs.mr->size)
+                       ? mrs.mr->size - convert_offset : size;
+
+        ret = guest_memfd_set_memory_attributes_fd(rb->guest_memfd,
+                                                   convert_offset,
+                                                   convert_size,
+                                                   attr);
+        if (ret) {
+            /*
+             * TODO: this assumes that no partial changes are made if a failure
+             * occurs at a particular offset, but the documentation isn't
+             * currently clear on that aspect. might need handling for partial
+             * updates WRT determining convert.size for the next call.
+             */
+            if (ret == -EAGAIN) {
+                continue;
+            }
+            error_report("Conversion failed for guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " ret %d",
+                         rb->guest_memfd, convert_offset, start, ret);
+        }
+
+        start += convert_size;
+        size -= convert_size;
+
+        memory_region_unref(mrs.mr);
+    } while (size);
+
+    return ret;
+}
+
 int kvm_set_memory_attributes_private(hwaddr start, uint64_t size)
 {
+    if (current_machine->cgs && current_machine->cgs->convert_in_place)
+        return guest_memfd_set_memory_attributes(start, size,
+                                                 KVM_MEMORY_ATTRIBUTE_PRIVATE);
+
     return kvm_set_memory_attributes(start, size, KVM_MEMORY_ATTRIBUTE_PRIVATE);
 }
 
 int kvm_set_memory_attributes_shared(hwaddr start, uint64_t size)
 {
+    if (current_machine->cgs && current_machine->cgs->convert_in_place)
+        return guest_memfd_set_memory_attributes(start, size, 0);
+
     return kvm_set_memory_attributes(start, size, 0);
 }
 
