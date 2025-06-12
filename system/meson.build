@@ -15,6 +15,7 @@ system_ss.add(files(
   'dirtylimit.c',
   'dma-helpers.c',
   'globals.c',
+  'ram-block-attributes.c',
   'memory_mapping.c',
   'qdev-monitor.c',
   'qtest.c',
