@@ -586,4 +586,6 @@ int kvm_set_memory_attributes_shared(hwaddr start, uint64_t size);
 
 int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private);
 
+int kvm_gmem_ioctl(int gmem_fd, unsigned long type, ...);
+
 #endif
