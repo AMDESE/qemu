@@ -25,8 +25,8 @@
 #include "qemu/cutils.h"
 #include "qemu/chardev_open.h"
 #include "pci.h"
-//#include "exec/ram_addr.h"
-//#include "hw/i386/intel_iommu_internal.h"
+#include "exec/ram_addr.h"
+#include "hw/i386/intel_iommu_internal.h"
 
 static int iommufd_cdev_map(const VFIOContainerBase *bcontainer, hwaddr iova,
                             ram_addr_t size, void *vaddr, bool readonly)
