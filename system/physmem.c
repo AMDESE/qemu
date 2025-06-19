@@ -1848,6 +1848,24 @@ static void dirty_memory_extend(ram_addr_t new_ram_size)
     ram_list.num_dirty_blocks = new_num_blocks;
 }
 
+#define GUEST_MEMFD_FLAG_HUGETLB        (1UL << 2)
+#define GUESTMEM_HUGETLB_FLAG_SHIFT     58
+#define GUESTMEM_HUGETLB_FLAG_MASK      0x3fUL
+
+#define GUESTMEM_HUGETLB_FLAG_16KB      (14UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_64KB      (16UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_512KB     (19UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_1MB       (20UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_2MB       (21UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_8MB       (23UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_16MB      (24UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_32MB      (25UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_256MB     (28UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_512MB     (29UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_1GB       (30UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_2GB       (31UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+#define GUESTMEM_HUGETLB_FLAG_16GB      (34UL << GUESTMEM_HUGETLB_FLAG_SHIFT)
+
 static void ram_block_add(RAMBlock *new_block, Error **errp)
 {
     const bool noreserve = qemu_ram_is_noreserve(new_block);
@@ -1908,6 +1926,24 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
 #define GUEST_MEMFD_FLAG_SUPPORT_SHARED (1UL << 0)
         if (current_machine->cgs && current_machine->cgs->convert_in_place)
             gmem_flags |= GUEST_MEMFD_FLAG_SUPPORT_SHARED;
+
+        if (current_machine->cgs &&
+            current_machine->cgs->gmem_allocator == GUEST_MEM_FD_ALLOCATOR_HUGETLB) {
+            gmem_flags |= GUEST_MEMFD_FLAG_HUGETLB;
+
+            switch (current_machine->cgs->gmem_page_size) {
+            case 0x200000:
+                gmem_flags |= GUESTMEM_HUGETLB_FLAG_2MB;
+                break;
+            case 0x40000000:
+                gmem_flags |= GUESTMEM_HUGETLB_FLAG_1GB;
+                break;
+            default:
+                error_setg(errp, "guest_memfd does not support the specified hugetlb page size (%d)",
+                           current_machine->cgs->gmem_page_size);
+                goto out_free;
+            }
+        }
 
         new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
                                                         gmem_flags, errp);
