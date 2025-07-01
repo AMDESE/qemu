@@ -1458,7 +1458,12 @@ retry:
             }
             error_report("Conversion failed for guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " ret %d",
                          rb->guest_memfd, gmem_start, start, ret);
-            vm_stop(RUN_STATE_INTERNAL_ERROR);
+            if (ret == -ENOTTY) {
+                printf("VFIO? Cannot convert for VFIO\n");
+                ret = 0;
+            } else {
+                vm_stop(RUN_STATE_INTERNAL_ERROR);
+            }
         }
 
         start += convert.size;
