@@ -1471,7 +1471,7 @@ static int gmem_set_private(hwaddr start, uint64_t size)
         return gmem_set_shareability(start, size, false);
 }
 
-static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
+int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
 {
     struct kvm_memory_attributes attrs;
     int r;
