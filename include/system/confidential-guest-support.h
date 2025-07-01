@@ -23,6 +23,7 @@
 #endif
 
 #include "qom/object.h"
+#include "qapi/qapi-visit-qom.h"
 
 #define TYPE_CONFIDENTIAL_GUEST_SUPPORT "confidential-guest-support"
 OBJECT_DECLARE_TYPE(ConfidentialGuestSupport,
@@ -61,6 +62,10 @@ struct ConfidentialGuestSupport {
      * so 'ready' is not set, we'll abort.
      */
     bool ready;
+
+    bool convert_in_place;
+    GuestMemFdAllocator gmem_allocator;
+    uint32_t gmem_page_size;
 };
 
 typedef struct ConfidentialGuestSupportClass {
