@@ -52,6 +52,7 @@
 #include "kvm-cpus.h"
 #include "system/dirtylimit.h"
 #include "qemu/range.h"
+#include "system/confidential-guest-support.h"
 
 #include "hw/core/boards.h"
 #include "system/stats.h"
@@ -2896,6 +2897,7 @@ static int kvm_reset_vmfd(MachineState *ms)
 static int kvm_init(AccelState *as, MachineState *ms)
 {
     MachineClass *mc = MACHINE_GET_CLASS(ms);
+    ConfidentialGuestSupport *cgs = ms->cgs;
     static const char upgrade_note[] =
         "Please upgrade to at least kernel 4.5.\n";
     const struct {
@@ -3070,6 +3072,26 @@ static int kvm_init(AccelState *as, MachineState *ms)
         kvm_vm_check_extension(s, KVM_CAP_GUEST_MEMFD) &&
         kvm_vm_check_extension(s, KVM_CAP_USER_MEMORY2);
     kvm_pre_fault_memory_supported = kvm_vm_check_extension(s, KVM_CAP_PRE_FAULT_MEMORY);
+
+    if (cgs && cgs->convert_in_place) {
+        uint64_t guest_memfd_supported_memory_attributes;
+
+        guest_memfd_supported_memory_attributes =
+            kvm_vm_check_extension(s, KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES);
+
+        if (!(guest_memfd_supported_memory_attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)) {
+            ret = -EINVAL;
+            error_report("In-place conversion is only supported if private "
+                         "memory attributes can be set via guest_memfd. "
+                         "Please ensure the 'vm_memory_attributes' KVM module "
+                         "parameter is set to 0.");
+            goto err;
+        }
+
+        assert(kvm_guest_memfd_supported);
+        kvm_supported_memory_attributes = guest_memfd_supported_memory_attributes;
+    }
+
 
     if (s->kernel_irqchip_split == ON_OFF_AUTO_AUTO) {
         s->kernel_irqchip_split = mc->default_kernel_irqchip_split ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
