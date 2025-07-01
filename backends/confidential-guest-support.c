@@ -21,6 +21,25 @@ OBJECT_DEFINE_ABSTRACT_TYPE(ConfidentialGuestSupport,
                             CONFIDENTIAL_GUEST_SUPPORT,
                             OBJECT)
 
+static bool
+cgs_get_convert_in_place(Object *obj, Error **errp)
+{
+    return CONFIDENTIAL_GUEST_SUPPORT(obj)->convert_in_place;
+}
+
+static void
+cgs_set_convert_in_place(Object *obj, bool value, Error **errp)
+{
+    ConfidentialGuestSupport *cgs = CONFIDENTIAL_GUEST_SUPPORT(obj);
+
+    if (!cgs->allow_convert_in_place && value) {
+        error_setg(errp, "In-place conversion support is not supported for this guest configuration.");
+        return;
+    }
+
+    cgs->convert_in_place = value;
+}
+
 static bool check_support(ConfidentialGuestPlatformType platform,
                          uint16_t platform_version, uint8_t highest_vtl,
                          uint64_t shared_gpa_boundary)
@@ -70,6 +89,13 @@ static void confidential_guest_support_class_init(ObjectClass *oc,
 
 static void confidential_guest_support_init(Object *obj)
 {
+    ConfidentialGuestSupport *cgs = CONFIDENTIAL_GUEST_SUPPORT(obj);
+
+    object_property_add_bool(obj, "convert-in-place", cgs_get_convert_in_place,
+                             cgs_set_convert_in_place);
+
+    cgs->convert_in_place = false;
+    cgs->allow_convert_in_place = false;
 }
 
 static void confidential_guest_support_finalize(Object *obj)

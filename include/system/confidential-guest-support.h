@@ -20,6 +20,7 @@
 
 #include "qom/object.h"
 #include "exec/hwaddr.h"
+#include "qapi/qapi-visit-qom.h"
 
 #define TYPE_CONFIDENTIAL_GUEST_SUPPORT "confidential-guest-support"
 OBJECT_DECLARE_TYPE(ConfidentialGuestSupport,
@@ -92,6 +93,19 @@ struct ConfidentialGuestSupport {
      * so 'ready' is not set, we'll abort.
      */
     bool ready;
+
+    /*
+     * True if the machine re-uses physical pages when converting
+     * between shared/private (as opposed to using different
+     * physical pages depending on the access type).
+     */
+    bool convert_in_place;
+
+    /*
+     * CGS implementations will use this to indicate whether or not
+     * in-place conversion can be enabled by users.
+     */
+    bool allow_convert_in_place;
 };
 
 typedef struct ConfidentialGuestSupportClass {

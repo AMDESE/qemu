@@ -1342,6 +1342,11 @@ bool machine_require_guest_memfd_private(MachineState *machine)
     return machine->cgs && machine->cgs->require_guest_memfd;
 }
 
+bool machine_require_guest_memfd_convert_in_place(MachineState *machine)
+{
+    return machine->cgs && machine->cgs->convert_in_place;
+}
+
 static char *cpu_slot_to_string(const CPUArchId *cpu)
 {
     GString *s = g_string_new(NULL);

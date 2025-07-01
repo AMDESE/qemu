@@ -1006,6 +1006,21 @@
   'data': { 'file': 'str' } }
 
 ##
+# @ConfidentialGuestSupportProperties:
+#
+# Properties for ConfidentialGuestSupport base class.
+#
+# @convert-in-place: If true, the same physical pages are reused
+#     when memory is converted between shared and private states.
+#     If false (default), separate allocations are used depending
+#     on whether the page is private or shared.
+#
+# Since: 11.2
+##
+{ 'struct': 'ConfidentialGuestSupportProperties',
+  'data': { '*convert-in-place': 'bool' } }
+
+##
 # @SevCommonProperties:
 #
 # Properties common to objects that are derivatives of sev-common.
@@ -1033,6 +1048,7 @@
 # Since: 9.1
 ##
 { 'struct': 'SevCommonProperties',
+  'base': 'ConfidentialGuestSupportProperties',
   'data': { '*sev-device': 'str',
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
