@@ -1848,7 +1848,6 @@ static void dirty_memory_extend(ram_addr_t new_ram_size)
     ram_list.num_dirty_blocks = new_num_blocks;
 }
 
-#define GUEST_MEMFD_FLAG_HUGETLB        (1UL << 2)
 #define GUESTMEM_HUGETLB_FLAG_SHIFT     58
 #define GUESTMEM_HUGETLB_FLAG_MASK      0x3fUL
 
@@ -1923,7 +1922,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             goto out_free;
         }
 
-#define GUEST_MEMFD_FLAG_SUPPORT_SHARED (1UL << 0)
+//#define GUEST_MEMFD_FLAG_SUPPORT_SHARED (1UL << 0)
         if (current_machine->cgs && current_machine->cgs->convert_in_place)
             gmem_flags |= GUEST_MEMFD_FLAG_SUPPORT_SHARED;
 
