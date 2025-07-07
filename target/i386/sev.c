@@ -1226,6 +1226,12 @@ snp_launch_update_cpuid(uint32_t cpuid_addr, void *hva, size_t cpuid_len)
         return 1;
     }
 
+    ret = kvm_set_memory_attributes_shared(cpuid_addr, cpuid_len);
+    if (ret) {
+        error_report("SEV-SNP: failed to set to shared for CPUID page population");
+        return 1;
+    }
+
     memcpy(hva, &snp_cpuid_info, sizeof(snp_cpuid_info));
 
     return snp_launch_update_data(cpuid_addr, hva, cpuid_len,
@@ -1238,9 +1244,18 @@ snp_launch_update_kernel_hashes(SevSnpGuestState *sev_snp, uint32_t addr,
 {
     int type = KVM_SEV_SNP_PAGE_TYPE_ZERO;
     if (sev_snp->parent_obj.kernel_hashes) {
+        int ret;
+
         assert(sev_snp->kernel_hashes_data);
         assert((sev_snp->kernel_hashes_offset +
                 sizeof(*sev_snp->kernel_hashes_data)) <= len);
+
+        ret = kvm_set_memory_attributes_shared(addr, len);
+        if (ret) {
+            error_report("SEV-SNP: failed to set to shared for kernel hash population");
+            return ret;
+        }
+
         memset(hva, 0, len);
         memcpy(hva + sev_snp->kernel_hashes_offset, sev_snp->kernel_hashes_data,
                sizeof(*sev_snp->kernel_hashes_data));
