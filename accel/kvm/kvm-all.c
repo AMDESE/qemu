@@ -1604,16 +1604,7 @@ static void kvm_set_phys_mem(KVMMemoryListener *kml,
         }
 
         if (memory_region_has_guest_memfd(mr)) {
-            /*
-             * If using in-place conversion, default to shared so that initial
-             * memory can be populated in place. It is up to the machine to set
-             * memory to private before launch if that is something the guest
-             * expects.
-             */
-            err = (current_machine->cgs && current_machine->cgs->convert_in_place)
-                  ? kvm_set_memory_attributes_shared(start_addr, slot_size)
-                  : kvm_set_memory_attributes_private(start_addr, slot_size);
-
+            err = kvm_set_memory_attributes_private(start_addr, slot_size);
             if (err) {
                 error_report("%s: failed to set memory attribute private: %s",
                              __func__, strerror(-err));
