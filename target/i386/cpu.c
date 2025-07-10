@@ -7269,9 +7269,9 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         *ecx = env->features[FEAT_8000_0001_ECX];
         *edx = env->features[FEAT_8000_0001_EDX];
 
-        if (kvm_enabled() && !cpu->enable_pmu &&
-            (env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_IBS)) {
-            *ecx &= ~CPUID_EXT3_IBS;
+        if (kvm_enabled() && (env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_IBS)) {
+            if (!cpu->enable_pmu || env->cpuid_min_xlevel <= 0x8000001e)
+               *ecx &= ~CPUID_EXT3_IBS;
         }
 
         if (tcg_enabled() && env->cpuid_vendor1 == CPUID_VENDOR_INTEL_1 &&
