@@ -377,6 +377,10 @@ static int kvm_set_user_memory_region(KVMMemoryListener *kml, KVMSlot *slot, boo
         }
     }
     mem.memory_size = slot->memory_size;
+    trace_kvm_set_user_memory(mem.slot >> 16, (uint16_t)mem.slot, mem.flags,
+                              mem.guest_phys_addr, mem.memory_size,
+                              mem.userspace_addr, mem.guest_memfd,
+                              mem.guest_memfd_offset, 0xFFFF);
     if (kvm_guest_memfd_supported && slot->guest_memfd >= 0) {
         ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION2, &mem);
     } else {
@@ -1447,6 +1451,7 @@ static int gmem_set_shareability(hwaddr start, uint64_t size, bool shareable)
     convert.offset = gmem_start;
     convert.size = size;
 
+    trace_kvm_gmem_ioctl(rb->guest_memfd, start, size, shareable, gmem_start, convert.offset, convert.size);
     ret = kvm_gmem_ioctl(rb->guest_memfd, shareable ? KVM_GMEM_CONVERT_SHARED : KVM_GMEM_CONVERT_PRIVATE, &convert);
     if (ret) {
         error_report("Conversion failed for guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " ret %d",
