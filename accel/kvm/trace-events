@@ -38,3 +38,4 @@ kvm_convert_memory(uint64_t start, uint64_t size, const char *msg) "start 0x%" P
 kvm_memory_fault(uint64_t start, uint64_t size, uint64_t flags) "start 0x%" PRIx64 " size 0x%" PRIx64 " flags 0x%" PRIx64
 kvm_slots_grow(unsigned int old, unsigned int new) "%u -> %u"
 kvm_set_memory_attributes(uint64_t start, uint64_t size, uint64_t flags) "start 0x%" PRIx64 " size 0x%" PRIx64 " flags 0x%" PRIx64
+kvm_gmem_ioctl(int guest_memfd, uint64_t start, uint64_t size, bool shareable, uint64_t gmem_start, uint64_t convert_offset, uint64_t convert_size) "gmemfd=%d start=%" PRIx64 " size=%" PRIx64 " shareable=%d gmem_start=%" PRIx64 " convert_offset=%" PRIx64 " convert_size=%" PRIx64
