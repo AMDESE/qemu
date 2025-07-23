@@ -1632,7 +1632,7 @@ static void kvm_set_phys_mem(KVMMemoryListener *kml,
             abort();
         }
 
-        if (memory_region_has_guest_memfd(mr)) {
+        if (memory_region_has_guest_memfd(mr) && !mr->ram_device) {
             /*
              * With in-place conversion, access to shared memory will now
              * always be handled by gmem fault handler, and in that case
