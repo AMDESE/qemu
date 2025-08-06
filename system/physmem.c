@@ -2027,6 +2027,7 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
     new_block->resized = resized;
     new_block->flags = ram_flags;
     new_block->guest_memfd = -1;
+    new_block->mr->align = QEMU_VMALLOC_ALIGN;
     new_block->host = file_ram_alloc(new_block, max_size, fd,
                                      file_size < offset + max_size,
                                      offset, errp);
