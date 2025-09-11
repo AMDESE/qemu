@@ -29,6 +29,7 @@
 #include "hw/virtio/virtio-bus.h"
 #include "hw/virtio/virtio.h"
 #include "exec/address-spaces.h"
+#include "hw/boards.h"
 
 /* #define DEBUG_VIRTIO_BUS */
 
@@ -95,6 +96,16 @@ void virtio_bus_device_plugged(VirtIODevice *vdev, Error **errp)
                 return;
             }
         }
+    }
+
+    /*
+     * If iommu_platform=on hasn't been specified explicitly via command-line,
+     * continue to advertise VIRTIO_F_IOMMU_PLATFORM so that confidential
+     * guest drivers will still initialize. This allows testing non-IOMMU-aware
+     * vhost-user implementations.
+     */
+    if (!has_iommu && current_machine->cgs) {
+        virtio_add_feature(&vdev->host_features, VIRTIO_F_IOMMU_PLATFORM);
     }
 }
 
