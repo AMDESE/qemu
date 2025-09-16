@@ -1058,6 +1058,17 @@ FeatureWordInfo feature_word_info[FEATURE_WORDS] = {
         .cpuid = { .eax = 0x8000000A, .reg = R_EDX, },
         .tcg_features = TCG_SVM_FEATURES,
     },
+    [FEAT_SVM2] = {
+        .type = CPUID_FEATURE_WORD,
+        .feat_names = {
+            NULL, NULL, NULL, NULL, NULL, "enhanced-tlbi", NULL, NULL,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+        },
+        .cpuid = { .eax = 0x8000000A, .reg = R_ECX, },
+        .tcg_features = CPUID_SVM2_ENHANCEDTLBI,
+    },
     [FEAT_7_0_EBX] = {
         .type = CPUID_FEATURE_WORD,
         .feat_names = {
@@ -5402,6 +5413,8 @@ static const X86CPUDefinition builtin_x86_defs[] = {
             CPUID_6_EAX_ARAT,
         .features[FEAT_SVM] =
             CPUID_SVM_NPT | CPUID_SVM_NRIPSAVE | CPUID_SVM_SVME_ADDR_CHK,
+//        .features[FEAT_SVM2] =
+  //          CPUID_SVM2_ENHANCEDTLBI,
         .xlevel = 0x8000001E,
         .model_id = "AMD EPYC-Milan Processor",
         .cache_info = &epyc_milan_cache_info,
@@ -7312,12 +7325,12 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         if (env->features[FEAT_8000_0001_ECX] & CPUID_EXT3_SVM) {
             *eax = 0x00000001; /* SVM Revision */
             *ebx = 0x00000010; /* nr of ASIDs */
-            *ecx = 0;
+            *ecx = env->features[FEAT_SVM2]; /* optional features */
             *edx = env->features[FEAT_SVM]; /* optional features */
         } else {
             *eax = 0;
             *ebx = 0;
-            *ecx = 0;
+            *ecx = env->features[FEAT_SVM2]; /* optional features */
             *edx = 0;
         }
         break;
@@ -7848,6 +7861,7 @@ void x86_cpu_expand_features(X86CPU *cpu, Error **errp)
         x86_cpu_adjust_feat_level(cpu, FEAT_8000_0008_EBX);
         x86_cpu_adjust_feat_level(cpu, FEAT_C000_0001_EDX);
         x86_cpu_adjust_feat_level(cpu, FEAT_SVM);
+        x86_cpu_adjust_feat_level(cpu, FEAT_SVM2);
         x86_cpu_adjust_feat_level(cpu, FEAT_XSAVE);
 
         /* Intel Processor Trace requires CPUID[0x14] */

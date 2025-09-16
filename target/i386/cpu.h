@@ -518,11 +518,12 @@ typedef enum X86Seg {
 #define MSR_EFER_NXE   (1 << 11)
 #define MSR_EFER_SVME  (1 << 12)
 #define MSR_EFER_FFXSR (1 << 14)
+#define MSR_EFER_ENHANCED_TLBI (1 << 24)
 
 #define MSR_EFER_RESERVED\
         (~(target_ulong)(MSR_EFER_SCE | MSR_EFER_LME\
             | MSR_EFER_LMA | MSR_EFER_NXE | MSR_EFER_SVME\
-            | MSR_EFER_FFXSR))
+            | MSR_EFER_FFXSR | MSR_EFER_ENHANCED_TLBI))
 
 #define MSR_STAR                        0xc0000081
 #define MSR_LSTAR                       0xc0000082
@@ -643,6 +644,7 @@ typedef enum FeatureWord {
     FEAT_KVM,           /* CPUID[4000_0001].EAX (KVM_CPUID_FEATURES) */
     FEAT_KVM_HINTS,     /* CPUID[4000_0001].EDX */
     FEAT_SVM,           /* CPUID[8000_000A].EDX */
+    FEAT_SVM2,          /* CPUID[8000_000A].ECX */
     FEAT_XSAVE,         /* CPUID[EAX=0xd,ECX=1].EAX */
     FEAT_6_EAX,         /* CPUID[6].EAX */
     FEAT_XSAVE_XCR0_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
@@ -815,6 +817,8 @@ uint64_t x86_cpu_get_supported_feature_word(X86CPU *cpu, FeatureWord w);
 #define CPUID_SVM_VGIF            (1U << 16)
 #define CPUID_SVM_VNMI            (1U << 25)
 #define CPUID_SVM_SVME_ADDR_CHK   (1U << 28)
+
+#define CPUID_SVM2_ENHANCEDTLBI   (1U << 5)
 
 /* Support RDFSBASE/RDGSBASE/WRFSBASE/WRGSBASE */
 #define CPUID_7_0_EBX_FSGSBASE          (1U << 0)
