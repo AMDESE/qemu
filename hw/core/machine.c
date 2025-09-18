@@ -1672,13 +1672,11 @@ void machine_run_board_init(MachineState *machine, const char *mem_path, Error *
          * mechanisms.  That requires also disabling legacy virtio
          * support for those virtio pci devices which allow it.
          */
-#if 0
         /* Relax this to allow testing DPDK backends without IOMMU support */
         object_register_sugar_prop(TYPE_VIRTIO_PCI, "disable-legacy",
                                    "on", true);
         object_register_sugar_prop(TYPE_VIRTIO_DEVICE, "iommu_platform",
-                                   "on", false);
-#endif
+                                   "off", false);
     }
 
     accel_init_interfaces(ACCEL_GET_CLASS(machine->accelerator));
