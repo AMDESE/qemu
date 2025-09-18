@@ -3337,6 +3337,7 @@ static void kvm_eat_signals(CPUState *cpu)
 int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
 {
     MemoryRegionSection section;
+    hwaddr convert_size;
     ram_addr_t offset;
     MemoryRegion *mr;
     RAMBlock *rb;
@@ -3354,6 +3355,11 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
         return ret;
     }
 
+    /*
+     * Page conversions can span multiple memory regions, for example, if two
+     * memory backends are added to support two different NUMA nodes/policies.
+     */
+next_memory_region:
     section = memory_region_find(get_system_memory(), start, size);
     mr = section.mr;
     if (!mr) {
@@ -3392,10 +3398,13 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
         goto out_unref;
     }
 
+    convert_size = (section.offset_within_region + size > mr->size) ?
+                   mr->size - section.offset_within_region : size;
+
     if (to_private) {
-        ret = kvm_set_memory_attributes_private(start, size);
+        ret = kvm_set_memory_attributes_private(start, convert_size);
     } else {
-        ret = kvm_set_memory_attributes_shared(start, size);
+        ret = kvm_set_memory_attributes_shared(start, convert_size);
     }
     if (ret) {
         goto out_unref;
@@ -3405,11 +3414,11 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
     rb = qemu_ram_block_from_host(addr, false, &offset);
 
     ret = ram_block_attributes_state_change(rb->attributes,
-                                            offset, size, to_private);
+                                            offset, convert_size, to_private);
     if (ret) {
         error_report("Failed to notify the listener the state change of "
                      "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s",
-                     start, size, to_private ? "private" : "shared");
+                     start, convert_size, to_private ? "private" : "shared");
         goto out_unref;
     }
 
@@ -3421,9 +3430,15 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
              */
             goto out_unref;
         }
-        ret = ram_block_discard_range(rb, offset, size);
+        ret = ram_block_discard_range(rb, offset, convert_size);
     } else {
-        ret = ram_block_discard_guest_memfd_range(rb, offset, size);
+        ret = ram_block_discard_guest_memfd_range(rb, offset, convert_size);
+    }
+
+    if (size - convert_size) {
+        start += convert_size;
+        size -= convert_size;
+        goto next_memory_region;
     }
 
 out_unref:
