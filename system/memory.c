@@ -34,6 +34,7 @@
 #include "hw/boards.h"
 #include "migration/vmstate.h"
 #include "exec/address-spaces.h"
+#include "system/confidential-guest-support.h"
 
 //#define DEBUG_UNASSIGNED
 
@@ -1885,6 +1886,12 @@ bool memory_region_is_protected(MemoryRegion *mr)
 bool memory_region_has_guest_memfd(MemoryRegion *mr)
 {
     return mr->ram_block && mr->ram_block->guest_memfd >= 0;
+}
+
+bool memory_region_has_guest_memfd_only(MemoryRegion *mr)
+{
+    return memory_region_has_guest_memfd(mr) && current_machine->cgs &&
+           current_machine->cgs->convert_in_place;
 }
 
 uint8_t memory_region_get_dirty_log_mask(MemoryRegion *mr)

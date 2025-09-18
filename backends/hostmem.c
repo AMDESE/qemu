@@ -36,6 +36,80 @@ QEMU_BUILD_BUG_ON(HOST_MEM_POLICY_BIND != MPOL_BIND);
 QEMU_BUILD_BUG_ON(HOST_MEM_POLICY_INTERLEAVE != MPOL_INTERLEAVE);
 #endif
 
+#include <linux/kvm.h>
+#include <sys/ioctl.h>
+#include "system/kvm.h"
+
+static int gmem_ioctl(int gmem_fd, unsigned long type, ...)
+{
+    int ret;
+    void *arg;
+    va_list ap;
+
+    va_start(ap, type);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    ret = ioctl(gmem_fd, type, arg);
+    if (ret == -1) {
+        ret = -errno;
+    }
+    return ret;
+}
+
+static bool host_memory_prealloc_mem(HostMemoryBackend *backend, bool async, Error **errp)
+{
+    int fd = memory_region_get_fd(&backend->mr);
+    void *ptr = memory_region_get_ram_ptr(&backend->mr);
+    uint64_t sz = memory_region_size(&backend->mr);
+
+    /*
+     * If guest_memfd is being used to back both shared/private memory, then
+     * some care is needed to preallocate efficiently in the case of hugepages:
+     *
+     * 1) the ranges must be marked private prior to allocation, otherwise the
+     *    corresponding backing pages will be split and then later merged back
+     *    to large pages when the ranges get set to private later. This churn
+     *    can lead to large startup delays otherwise, particularly if
+     *    hugetlb_free_vmemmap is set for the host kernel.
+     * 2) the preallocation mechanism must not rely on faulting pages into
+     *    userspace, since faulting in private pages from guest_memfd is not
+     *    allowed. fallocate() can be used instead to have guest_memfd prealloc
+     *    directly.
+     *
+     * For consistency, this logic is applied even without hugepages enabled
+     * for guest_memfd.
+     */
+    if (memory_region_has_guest_memfd_only(&backend->mr)) {
+        struct kvm_gmem_convert convert = {0};
+        int ret;
+
+        convert.offset = 0;
+        convert.size = sz;
+        ret = gmem_ioctl(fd, KVM_GMEM_CONVERT_PRIVATE, &convert);
+        if (ret) {
+            error_setg(errp, "Error setting guest_memfd to private prior to preallocation, ret %d fd %d size %ld",
+                       ret, fd, sz);
+            return false;
+        }
+
+        ret = fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, sz);
+        if (ret) {
+            error_setg(errp, "Error preallocting guest_memfd, ret %d errno %d fd %d size %ld",
+                       ret, errno, fd, sz);
+            return false;
+        }
+
+        return true;
+    }
+
+    return qemu_prealloc_mem(memory_region_get_fd(&backend->mr),
+                             ptr, sz,
+                             backend->prealloc_threads,
+                             backend->prealloc_context,
+                             async, errp);
+}
+
 char *
 host_memory_backend_get_name(HostMemoryBackend *backend)
 {
@@ -243,13 +317,14 @@ static void host_memory_backend_set_prealloc(Object *obj, bool value,
         return;
     }
 
-    if (value && !backend->prealloc) {
-        int fd = memory_region_get_fd(&backend->mr);
-        void *ptr = memory_region_get_ram_ptr(&backend->mr);
-        uint64_t sz = memory_region_size(&backend->mr);
-
-        if (!qemu_prealloc_mem(fd, ptr, sz, backend->prealloc_threads,
-                               backend->prealloc_context, false, errp)) {
+    /*
+     * If the guest_memfd is being used to back both shared/private memory,
+     * then make sure to defer preallocation until after NUMA binding occurs
+     * since guest_memfd memory is not migratable.
+     */
+    if (value && !backend->prealloc &&
+        !memory_region_has_guest_memfd_only(&backend->mr)) {
+        if (!host_memory_prealloc_mem(backend, false, errp)) {
             return;
         }
         backend->prealloc = true;
@@ -422,11 +497,7 @@ host_memory_backend_memory_complete(UserCreatable *uc, Error **errp)
      * This is necessary to guarantee memory is allocated with
      * specified NUMA policy in place.
      */
-    if (backend->prealloc && !qemu_prealloc_mem(memory_region_get_fd(&backend->mr),
-                                                ptr, sz,
-                                                backend->prealloc_threads,
-                                                backend->prealloc_context,
-                                                async, errp)) {
+    if (backend->prealloc && !host_memory_prealloc_mem(backend, async, errp)) {
         return;
     }
 }

@@ -1969,6 +1969,8 @@ static inline bool memory_region_is_nonvolatile(MemoryRegion *mr)
  */
 int memory_region_get_fd(MemoryRegion *mr);
 
+bool memory_region_has_guest_memfd_only(MemoryRegion *mr);
+
 /**
  * memory_region_from_host: Convert a pointer into a RAM memory region
  * and an offset within it.
