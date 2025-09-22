@@ -1443,8 +1443,12 @@ static int gmem_set_shareability(hwaddr start, uint64_t size, bool shareable)
         convert.offset = gmem_start;
         convert.size = (gmem_start + size > mrs.mr->size) ? mrs.mr->size - gmem_start : size;
 
+retry:
         ret = kvm_gmem_ioctl(rb->guest_memfd, shareable ? KVM_GMEM_CONVERT_SHARED : KVM_GMEM_CONVERT_PRIVATE, &convert);
         if (ret) {
+            if (ret == -EAGAIN) {
+                goto retry;
+            }
             error_report("Conversion failed for guest_memfd %d offset 0x%" HWADDR_PRIx " GPA 0x%" HWADDR_PRIx " ret %d",
                          rb->guest_memfd, gmem_start, start, ret);
         }
