@@ -2099,6 +2099,8 @@ sev_snp_guest_set_allowed_sev_features(Object *obj, bool value, Error **errp)
         SEV_COMMON(obj)->vmsa_features |= SEV_VMSA_ALLOWED_SEV_FEATURES;
 }
 
+bool savic_guest;
+
 static bool
 sev_snp_guest_get_secure_avic(Object *obj, Error **errp)
 {
@@ -2108,8 +2110,15 @@ sev_snp_guest_get_secure_avic(Object *obj, Error **errp)
 static void
 sev_snp_guest_set_secure_avic(Object *obj, bool value, Error **errp)
 {
-    if (value)
+    if (value) {
+        savic_guest = true;
         SEV_COMMON(obj)->vmsa_features |= SEV_VMSA_SECURE_AVIC;
+    }
+}
+
+bool is_savic_vm(void)
+{
+	return savic_guest;
 }
 
 static void

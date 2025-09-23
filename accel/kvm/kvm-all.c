@@ -48,6 +48,7 @@
 #include "kvm-cpus.h"
 #include "sysemu/dirtylimit.h"
 #include "qemu/range.h"
+#include "target/i386/sev.h"
 
 #include "hw/boards.h"
 #include "sysemu/stats.h"
@@ -2765,7 +2766,7 @@ void kvm_flush_coalesced_mmio_buffer(void)
 
 static void do_kvm_cpu_synchronize_state(CPUState *cpu, run_on_cpu_data arg)
 {
-    if (!cpu->vcpu_dirty && !kvm_state->guest_state_protected) {
+    if (!cpu->vcpu_dirty && !kvm_state->guest_state_protected && !is_savic_vm()) {
         int ret = kvm_arch_get_registers(cpu);
         if (ret) {
             error_report("Failed to get registers: %s", strerror(-ret));
