@@ -1009,6 +1009,9 @@
 #     designated guest firmware page for measured boot with -kernel
 #     (default: false) (since 6.2)
 #
+# @debug-swap: enable virtualization of debug registers
+#     (default: false) (since 10.2)
+#
 # Features:
 #
 # @confidential-guest-reset: If present, the hypervisor supports
@@ -1020,7 +1023,8 @@
   'data': { '*sev-device': 'str',
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
-            '*kernel-hashes': 'bool' },
+            '*kernel-hashes': 'bool',
+            '*debug-swap': 'bool' },
   'features': ['confidential-guest-reset']}
 
 ##
