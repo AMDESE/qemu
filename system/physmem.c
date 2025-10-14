@@ -1930,7 +1930,8 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             gmem_flags |= GUEST_MEMFD_FLAG_MMAP;
 
         if (current_machine->cgs &&
-            current_machine->cgs->gmem_allocator == GUEST_MEM_FD_ALLOCATOR_HUGETLB) {
+            current_machine->cgs->gmem_allocator == GUEST_MEM_FD_ALLOCATOR_HUGETLB &&
+            !(new_block->flags & RAM_GUEST_MEMFD_NOHUGE)) {
             gmem_flags |= GUEST_MEMFD_FLAG_HUGETLB;
 
             switch (current_machine->cgs->gmem_page_size) {

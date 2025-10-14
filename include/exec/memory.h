@@ -245,6 +245,7 @@ typedef struct IOMMUTLBEvent {
 
 /* RAM can be private that has kvm guest memfd backend */
 #define RAM_GUEST_MEMFD   (1 << 12)
+#define RAM_GUEST_MEMFD_NOHUGE   (1 << 13)
 
 /*
  * In RAMBlock creation functions, if MAP_SHARED is 0 in the flags parameter,
