@@ -12,7 +12,6 @@
 
 #include "qemu/osdep.h"
 #include "system/hostmem.h"
-#include "system/confidential-guest-support.h"
 #include "hw/boards.h"
 #include "qapi/error.h"
 #include "qapi/qapi-builtin-visit.h"
@@ -430,16 +429,6 @@ host_memory_backend_memory_complete(UserCreatable *uc, Error **errp)
         g_autofree char *pagesize_str = size_to_str(pagesize);
         error_setg(errp, "backend '%s' memory size must be multiple of %s",
                    object_get_typename(OBJECT(uc)), pagesize_str);
-        return;
-    }
-
-    if (current_machine->cgs && current_machine->cgs->gmem_page_size > 0 &&
-        current_machine->cgs->gmem_allocator == GUEST_MEM_FD_ALLOCATOR_HUGETLB &&
-        !QEMU_IS_ALIGNED(sz, current_machine->cgs->gmem_page_size)) {
-        error_setg(errp, "backend '%s' memory size must be multiple of"
-                   "gmem page size %d",
-                   object_get_typename(OBJECT(uc)),
-                   current_machine->cgs->gmem_page_size);
         return;
     }
 
