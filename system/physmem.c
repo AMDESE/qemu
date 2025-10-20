@@ -1848,7 +1848,7 @@ static void dirty_memory_extend(ram_addr_t new_ram_size)
     ram_list.num_dirty_blocks = new_num_blocks;
 }
 
-#define GUEST_MEMFD_FLAG_HUGETLB        (1UL << 2)
+//#define GUEST_MEMFD_FLAG_HUGETLB        (1UL << 2)
 #define GUESTMEM_HUGETLB_FLAG_SHIFT     58
 #define GUESTMEM_HUGETLB_FLAG_MASK      0x3fUL
 
@@ -1927,8 +1927,8 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             }
         }
 
-#define GUEST_MEMFD_FLAG_MMAP (1UL << 0)
-#define GUEST_MEMFD_FLAG_INIT_SHARED (1UL << 1)
+//#define GUEST_MEMFD_FLAG_MMAP (1UL << 0)
+//#define GUEST_MEMFD_FLAG_INIT_SHARED (1UL << 1)
         if (current_machine->cgs && current_machine->cgs->convert_in_place) {
             gmem_flags |= GUEST_MEMFD_FLAG_MMAP;
             gmem_flags |= GUEST_MEMFD_FLAG_INIT_SHARED;
