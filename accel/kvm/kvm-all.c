@@ -1419,7 +1419,8 @@ void kvm_set_max_memslot_size(hwaddr max_slot_size)
 static int gmem_set_shareability(hwaddr start, uint64_t size, bool shareable)
 {
     MemoryRegionSection mrs;
-    struct kvm_gmem_convert convert = {0};
+    //struct kvm_gmem_convert convert = {0};
+    struct kvm_memory_attributes2 convert = {0};
     uint64_t gmem_start;
     RAMBlock *rb;
     int ret;
@@ -1442,9 +1443,11 @@ static int gmem_set_shareability(hwaddr start, uint64_t size, bool shareable)
         gmem_start = mrs.offset_within_region;
         convert.offset = gmem_start;
         convert.size = (gmem_start + size > mrs.mr->size) ? mrs.mr->size - gmem_start : size;
+        convert.attributes = shareable ? 0 : KVM_MEMORY_ATTRIBUTE_PRIVATE;
 
 retry:
-        ret = kvm_gmem_ioctl(rb->guest_memfd, shareable ? KVM_GMEM_CONVERT_SHARED : KVM_GMEM_CONVERT_PRIVATE, &convert);
+        trace_kvm_guest_memfd_set_memory_attributes(gmem_start, convert.size, convert.attributes);
+        ret = kvm_gmem_ioctl(rb->guest_memfd, KVM_SET_MEMORY_ATTRIBUTES2, &convert);
         if (ret) {
             if (ret == -EAGAIN) {
                 goto retry;
@@ -1482,6 +1485,7 @@ static int kvm_set_memory_attributes(hwaddr start, uint64_t size, uint64_t attr)
     attrs.size = size;
     attrs.flags = 0;
 
+    trace_kvm_set_memory_attributes(start, attrs.size, attrs.attributes, attrs.flags);
     r = kvm_vm_ioctl(kvm_state, KVM_SET_MEMORY_ATTRIBUTES, &attrs);
     if (r) {
         error_report("failed to set memory (0x%" HWADDR_PRIx "+0x%" PRIx64 ") "
@@ -1615,7 +1619,21 @@ static void kvm_set_phys_mem(KVMMemoryListener *kml,
         }
 
         if (memory_region_has_guest_memfd(mr)) {
-            err = kvm_set_memory_attributes_private(start_addr, slot_size);
+            /*
+             * With in-place conversion, access to shared memory will now
+             * always be handled by gmem fault handler, and in that case
+             * the attributes will default to private. Set the range to
+             * shared so that memory can be populated similarly to non-in-place
+             * conversion, and then switched back to private later, as-needed.
+             *
+             * TODO: does this need some sort of discoverability?
+             */
+            if (current_machine->cgs && current_machine->cgs->convert_in_place) {
+                err = kvm_set_memory_attributes_shared(start_addr, slot_size);
+            } else {
+                err = kvm_set_memory_attributes_private(start_addr, slot_size);
+            }
+
             if (err) {
                 error_report("%s: failed to set memory attribute private: %s",
                              __func__, strerror(-err));
@@ -2789,7 +2807,18 @@ static int kvm_init(MachineState *ms)
         goto err;
     }
 
-    kvm_supported_memory_attributes = kvm_vm_check_extension(s, KVM_CAP_MEMORY_ATTRIBUTES);
+    if (current_machine->cgs && current_machine->cgs->convert_in_place) {
+        kvm_supported_memory_attributes = kvm_vm_check_extension(s, KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES);
+        if (!kvm_supported_memory_attributes) {
+            error_report("In-place conversion of shared/private guest memory "
+                         "requires KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES. "
+                         "Ensure that KVM module option kvm_vm_attributes=0");
+                exit(1);
+        }
+    } else {
+        kvm_supported_memory_attributes = kvm_vm_check_extension(s, KVM_CAP_MEMORY_ATTRIBUTES);
+    }
+
     kvm_guest_memfd_supported =
         kvm_check_extension(s, KVM_CAP_GUEST_MEMFD) &&
         kvm_check_extension(s, KVM_CAP_USER_MEMORY2) &&

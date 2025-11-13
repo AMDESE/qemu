@@ -1926,8 +1926,11 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         }
 
 #define GUEST_MEMFD_FLAG_MMAP (1UL << 0)
-        if (current_machine->cgs && current_machine->cgs->convert_in_place)
+#define GUEST_MEMFD_FLAG_INIT_SHARED (1UL << 1)
+        if (current_machine->cgs && current_machine->cgs->convert_in_place) {
             gmem_flags |= GUEST_MEMFD_FLAG_MMAP;
+            gmem_flags |= GUEST_MEMFD_FLAG_INIT_SHARED;
+        }
 
         if (current_machine->cgs &&
             current_machine->cgs->gmem_allocator == GUEST_MEM_FD_ALLOCATOR_HUGETLB &&
