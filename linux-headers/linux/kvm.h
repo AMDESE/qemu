@@ -921,8 +921,8 @@ struct kvm_enable_cap {
 #define KVM_CAP_PRE_FAULT_MEMORY 236
 #define KVM_CAP_X86_APIC_BUS_CYCLES_NS 237
 #define KVM_CAP_X86_GUEST_MODE 238
-#define KVM_CAP_MEMORY_ATTRIBUTES             245
-#define KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES 246
+#define KVM_CAP_MEMORY_ATTRIBUTES2            247
+#define KVM_CAP_GUEST_MEMFD_MEMORY_ATTRIBUTES 248
 
 struct kvm_irq_routing_irqchip {
 	__u32 irqchip;
@@ -1550,7 +1550,7 @@ struct kvm_stats_desc {
 #define KVM_SET_MEMORY_ATTRIBUTES              _IOW(KVMIO,  0xd2, struct kvm_memory_attributes)
 
 /* Available with KVM_CAP_MEMORY_ATTRIBUTES2 */
-#define KVM_SET_MEMORY_ATTRIBUTES2             _IOWR(KVMIO,  0xd6, struct kvm_memory_attributes2)
+#define KVM_SET_MEMORY_ATTRIBUTES2             _IOWR(KVMIO,  0xd2, struct kvm_memory_attributes2)
 
 struct kvm_memory_attributes {
 	__u64 address;
@@ -1568,7 +1568,7 @@ struct kvm_memory_attributes2 {
 	__u64 attributes;
 	__u64 flags;
 	__u64 error_offset;
-	__u64 reserved[3];
+	__u64 reserved[11];
 };
 
 #define KVM_MEMORY_ATTRIBUTE_PRIVATE           (1ULL << 3)
