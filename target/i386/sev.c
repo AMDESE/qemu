@@ -883,6 +883,7 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest,
     int ret, fw_error;
     SnpCpuidInfo snp_cpuid_info;
     struct kvm_sev_snp_launch_update update = {0};
+    ConfidentialGuestSupport *cgs = MACHINE(qdev_get_machine())->cgs;
 
     if (!data->hva || !data->len) {
         error_report("SNP_LAUNCH_UPDATE called with invalid address"
@@ -897,7 +898,9 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest,
     }
 
     /* TODO: should set this to NULL to accelerate in-place conversion case */
-    update.uaddr = (__u64)(unsigned long)data->hva;
+    if (!cgs->convert_in_place) {
+        update.uaddr = (__u64)(unsigned long)data->hva;
+    }
     update.gfn_start = data->gpa >> TARGET_PAGE_BITS;
     update.len = data->len;
     update.type = data->type;
