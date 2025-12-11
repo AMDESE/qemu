@@ -113,6 +113,8 @@ struct SevCommonState {
     bool reset_data_valid;
 
     uint8_t continue_on_failed_tdi_bind;
+
+    char *tsm_helper;
 };
 
 struct SevCommonStateClass {
@@ -2097,7 +2099,30 @@ static ssize_t write_full(const char *fn, uint8_t *buf, ssize_t len)
     return wb;
 }
 
-static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t *data, ssize_t data_len)
+static void tsm_helper(const char *helper, const char *param, const char *fn)
+{
+    if (!helper) {
+        return;
+    }
+
+    int pid = fork();
+
+    if (pid == 0) {
+        const char *args[] = { helper, param, fn, NULL };
+
+        execv(helper, (char **) args);
+        return;
+    }
+
+//    int status = 0;
+//
+//    while (waitpid(pid, &status, 0) != pid) {
+//        /* loop */
+//    }
+}
+
+static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t *data, ssize_t data_len,
+                                const char *tsmhelper)
 {
     char fn[128], dsm[64];
     struct tio_blob_table_entry {
@@ -2132,12 +2157,16 @@ static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t *data, ssize_t data
     off += t[0].length;
     len -= t[0].length;
 
+    tsm_helper(tsmhelper, "--certificates", fn);
+
     snprintf(fn, sizeof(fn) - 1, "/sys/bus/pci/devices/%s/tsm/meas", dsm);
     t[1].guid = measuuid;
     t[1].offset = off;
     t[1].length = read_full(fn, data + off, len);
     off += t[1].length;
     len -= t[1].length;
+
+    tsm_helper(tsmhelper, "--measurements", fn);
 
     snprintf(fn, sizeof(fn) - 1,
              "/sys/bus/pci/devices/%04x:%02x:%02x.%01x/tsm/report",
@@ -2148,9 +2177,11 @@ static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t *data, ssize_t data
     t[2].length = read_full(fn, data + off, len);
 
     memset(&t[3], 0, sizeof(*t));
+
+    tsm_helper(tsmhelper, "--report", fn);
 }
 
-static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev)
+static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev, const char *tsmhelper)
 {
     char fn[128];
     struct tsm_tdi_status status = {};
@@ -2167,6 +2198,7 @@ static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev)
         vm_stop(RUN_STATE_INTERNAL_ERROR);
     }
     trace_sev_snp_tdi_status(vdev->vbasedev.name, ret);
+    tsm_helper(tsmhelper, "--tdi", fn);
 
     return ret;
 }
@@ -2339,11 +2371,11 @@ static int kvm_handle_vmgexit_tio_req(SevCommonState *sev_common, struct kvm_use
     }
 
     if (ex->tio_req.data_npages) {
-        sev_tio_store_certs(vdev, data, data_len);
+        sev_tio_store_certs(vdev, data, data_len, sev_common->tsm_helper);
     }
 
     if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_STATUS) {
-        ex->tio_req.tdi_status = sev_tio_read_status(vdev);
+        ex->tio_req.tdi_status = sev_tio_read_status(vdev, sev_common->tsm_helper);
     }
 
 unmap_exit:
@@ -2418,6 +2450,18 @@ sev_common_set_discard(Object *obj, const char *value, Error **errp)
     SEV_COMMON(obj)->discard = g_strdup(value);
 }
 
+static char *
+sev_common_get_tsm_helper(Object *obj, Error **errp)
+{
+    return g_strdup(SEV_COMMON(obj)->tsm_helper);
+}
+
+static void
+sev_common_set_tsm_helper(Object *obj, const char *value, Error **errp)
+{
+    SEV_COMMON(obj)->tsm_helper = g_strdup(value);
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -2438,6 +2482,9 @@ sev_common_class_init(ObjectClass *oc, void *data)
     object_class_property_add_str(oc, "discard",
                                   sev_common_get_discard,
                                   sev_common_set_discard);
+    object_class_property_add_str(oc, "tsm-helper",
+                                  sev_common_get_tsm_helper,
+                                  sev_common_set_tsm_helper);
 }
 
 static void
