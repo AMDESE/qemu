@@ -177,6 +177,8 @@ static int has_exception_payload;
 static int has_triple_fault_event;
 
 static bool has_msr_mcg_ext_ctl;
+static bool has_lapic2;
+static bool has_extapic;
 
 static struct kvm_cpuid2 *cpuid_cache;
 static struct kvm_cpuid2 *hv_cpuid_cache;
@@ -2064,13 +2066,69 @@ full:
     abort();
 }
 
+bool kvm_has_lapic2(void)
+{
+    return has_lapic2;
+}
+
+bool kvm_has_extapic(void)
+{
+    return has_extapic;
+}
+
+static int kvm_enable_extapic(X86CPU *cpu)
+{
+    KVMState *s = KVM_STATE(current_accel());
+    uint64_t kvm_cap, vm_cap, final_cap;
+    uint8_t nr_extlvt = 0;
+    int ret;
+
+    if (!s) {
+        error_report("KVM accelerator is not available");
+        return -ENODEV;
+    }
+
+    if (!has_lapic2) {
+        kvm_cap = kvm_check_extension(s, KVM_CAP_LAPIC2);
+        if (!kvm_cap) {
+            return 0;
+        }
+
+        vm_cap = KVM_LAPIC2_DEFAULT;
+        if (arch_has_extapic(cpu)) {
+            vm_cap |= KVM_LAPIC2_AMD_DEFAULT;
+        }
+
+        final_cap = kvm_cap & vm_cap;
+        ret = kvm_vm_enable_cap(s, KVM_CAP_LAPIC2, 0, final_cap);
+
+        if (ret < 0) {
+            error_report("kvm: Failed to enable EXTAPIC");
+            return -ENOTSUP;
+        }
+
+        has_lapic2 = true;
+        if (final_cap & KVM_LAPIC2_AMD_DEFAULT) {
+            nr_extlvt = KVM_X86_NR_EXTLVT_DEFAULT;
+            has_extapic = true;
+        }
+    }
+
+    if (nr_extlvt > 0) {
+        kvm_initialize_extlvt(cpu, nr_extlvt);
+    }
+    return 0;
+}
+
 int kvm_arch_pre_create_vcpu(CPUState *cpu, Error **errp)
 {
     if (is_tdx_vm()) {
         return tdx_pre_create_vcpu(cpu, errp);
     }
 
-    return 0;
+    X86CPU *cs = X86_CPU(cpu);
+
+    return kvm_enable_extapic(cs);
 }
 
 int kvm_arch_init_vcpu(CPUState *cs)
@@ -2399,6 +2457,7 @@ int kvm_arch_destroy_vcpu(CPUState *cs)
     g_free(env->nested_state);
     env->nested_state = NULL;
 
+    kvm_uninitialize_extlvt(cpu);
     qemu_del_vm_change_state_handler(cpu->vmsentry);
 
     return 0;

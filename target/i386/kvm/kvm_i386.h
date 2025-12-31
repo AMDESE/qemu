@@ -25,6 +25,8 @@
     (kvm_irqchip_in_kernel() && !kvm_irqchip_is_split())
 
 bool kvm_has_smm(void);
+bool kvm_has_extapic(void);
+bool kvm_has_lapic2(void);
 bool kvm_enable_x2apic(void);
 bool kvm_hv_vpindex_settable(void);
 bool kvm_enable_hypercall(uint64_t enable_mask);
