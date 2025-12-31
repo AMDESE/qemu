@@ -12,6 +12,7 @@
 #define QEMU_KVM_I386_H
 
 #include "system/kvm.h"
+#include "hw/i386/apic_internal.h"
 
 #define KVM_MAX_CPUID_ENTRIES  100
 
@@ -56,7 +57,7 @@ bool kvm_has_adjust_clock_stable(void);
 bool kvm_has_exception_payload(void);
 void kvm_synchronize_all_tsc(void);
 
-void kvm_get_apic_state(DeviceState *d, void *kapic);
+void kvm_get_apic_state(APICCommonState *s, void *kapic);
 void kvm_put_apicbase(X86CPU *cpu, uint64_t value);
 
 bool kvm_has_x2apic_api(void);

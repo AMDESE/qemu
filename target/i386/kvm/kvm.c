@@ -5012,10 +5012,11 @@ static int kvm_get_mp_state(X86CPU *cpu)
 
 static int kvm_get_apic(X86CPU *cpu)
 {
-    DeviceState *apic = cpu->apic_state;
+    APICCommonState *apic;
     struct kvm_lapic_state kapic;
     int ret;
 
+    apic = APIC_COMMON(cpu->apic_state);
     if (apic && kvm_irqchip_in_kernel()) {
         ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_LAPIC, &kapic);
         if (ret < 0) {
