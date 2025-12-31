@@ -5069,6 +5069,28 @@ static int kvm_get_mp_state(X86CPU *cpu)
     return 0;
 }
 
+static int kvm_get_apic2(X86CPU *cpu)
+{
+    APICCommonState *apic;
+    struct kvm_lapic_state2 kapic2;
+    int ret;
+
+    apic = APIC_COMMON(cpu->apic_state);
+
+    if (!apic || !kvm_irqchip_in_kernel()) {
+        return 0;
+    }
+
+    ret = kvm_vcpu_ioctl(CPU(cpu), KVM_GET_LAPIC2, &kapic2);
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    kvm_get_apic_state(apic, &kapic2);
+    return 0;
+}
+
 static int kvm_get_apic(X86CPU *cpu)
 {
     APICCommonState *apic;
@@ -5476,7 +5498,7 @@ int kvm_arch_get_registers(CPUState *cs, Error **errp)
         error_setg_errno(errp, -ret, "Failed to get MSRs");
         goto out;
     }
-    ret = kvm_get_apic(cpu);
+    ret = has_lapic2 ? kvm_get_apic2(cpu) : kvm_get_apic(cpu);
     if (ret < 0) {
         error_setg_errno(errp, -ret, "Failed to get APIC");
         goto out;

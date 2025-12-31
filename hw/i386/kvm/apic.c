@@ -33,7 +33,11 @@ static void kvm_put_apic_state(APICCommonState *s, void *regs)
 {
     int i;
 
-    memset(regs, 0, KVM_APIC_REG_SIZE);
+    if (kvm_has_lapic2()) {
+        memset(regs, 0, KVM_APIC_EXT_REG_SIZE);
+    } else {
+        memset(regs, 0, KVM_APIC_REG_SIZE);
+    }
 
     if (kvm_has_x2apic_api() && s->apicbase & MSR_IA32_APICBASE_EXTD) {
         kvm_apic_set_reg(regs, 0x2, s->initial_apic_id);
@@ -58,6 +62,13 @@ static void kvm_put_apic_state(APICCommonState *s, void *regs)
     kvm_apic_set_reg(regs, 0x38, s->initial_count);
     kvm_apic_set_reg(regs, 0x3e, s->divide_conf);
 
+    if (kvm_has_extapic()) {
+        kvm_apic_set_reg(regs, 0x40, s->efeat);
+        kvm_apic_set_reg(regs, 0x41, s->ectrl);
+        for (i = 0; i < s->nr_extlvt; i++) {
+            kvm_apic_set_reg(regs, 0x50 + i, s->extlvt[i]);
+        }
+    }
 }
 
 void kvm_get_apic_state(APICCommonState *s, void *kapic)
@@ -90,6 +101,15 @@ void kvm_get_apic_state(APICCommonState *s, void *kapic)
 
     v = (s->divide_conf & 3) | ((s->divide_conf >> 1) & 4);
     s->count_shift = (v + 1) & 7;
+
+    if (kvm_has_extapic()) {
+        s->efeat = kvm_apic_get_reg(kapic, 0x40);
+        s->ectrl = kvm_apic_get_reg(kapic, 0x41);
+
+       for (i = 0; i < s->nr_extlvt; i++) {
+            s->extlvt[i] = kvm_apic_get_reg(kapic, 0x50 + i);
+        }
+    }
 
     s->initial_count_load_time = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     apic_next_timer(s, s->initial_count_load_time);
@@ -156,6 +176,27 @@ void kvm_uninitialize_extlvt(X86CPU *cpu)
     }
 }
 
+static void kvm_apic_put2(CPUState *cs, run_on_cpu_data data)
+{
+    APICCommonState *s = data.host_ptr;
+    struct kvm_lapic_state2 kapic2;
+    int ret;
+
+    if (is_tdx_vm()) {
+        return;
+    }
+
+    kvm_put_apicbase(s->cpu, s->apicbase);
+    kvm_put_apic_state(s, &kapic2);
+
+    ret = kvm_vcpu_ioctl(CPU(s->cpu), KVM_SET_LAPIC2, &kapic2);
+    if (ret < 0) {
+        fprintf(stderr, "KVM_SET_LAPIC2 failed EXT: %s\n",
+               strerror(-ret));
+        abort();
+    }
+}
+
 static void kvm_apic_put(CPUState *cs, run_on_cpu_data data)
 {
     APICCommonState *s = data.host_ptr;
@@ -178,7 +219,11 @@ static void kvm_apic_put(CPUState *cs, run_on_cpu_data data)
 
 static void kvm_apic_post_load(APICCommonState *s)
 {
-    run_on_cpu(CPU(s->cpu), kvm_apic_put, RUN_ON_CPU_HOST_PTR(s));
+    if (kvm_has_lapic2()) {
+        run_on_cpu(CPU(s->cpu), kvm_apic_put2, RUN_ON_CPU_HOST_PTR(s));
+    } else {
+        run_on_cpu(CPU(s->cpu), kvm_apic_put, RUN_ON_CPU_HOST_PTR(s));
+    }
 }
 
 static void do_inject_external_nmi(CPUState *cpu, run_on_cpu_data data)
@@ -247,7 +292,11 @@ static void kvm_apic_reset(APICCommonState *s)
     /* Not used by KVM, which uses the CPU mp_state instead.  */
     s->wait_for_sipi = 0;
 
-    run_on_cpu(CPU(s->cpu), kvm_apic_put, RUN_ON_CPU_HOST_PTR(s));
+    if (kvm_has_lapic2()) {
+        run_on_cpu(CPU(s->cpu), kvm_apic_put2, RUN_ON_CPU_HOST_PTR(s));
+    } else {
+        run_on_cpu(CPU(s->cpu), kvm_apic_put, RUN_ON_CPU_HOST_PTR(s));
+    }
 }
 
 static void kvm_apic_realize(DeviceState *dev, Error **errp)
