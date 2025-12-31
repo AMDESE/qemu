@@ -19,48 +19,48 @@
 #include "kvm/kvm_i386.h"
 #include "kvm/tdx.h"
 
-static inline void kvm_apic_set_reg(struct kvm_lapic_state *kapic,
-                                    int reg_id, uint32_t val)
+static inline void kvm_apic_set_reg(void *regs, int reg_id, uint32_t val)
 {
-    *((uint32_t *)(kapic->regs + (reg_id << 4))) = val;
+    *((uint32_t *)((char *)regs + (reg_id << 4))) = val;
 }
 
-static inline uint32_t kvm_apic_get_reg(struct kvm_lapic_state *kapic,
-                                        int reg_id)
+static inline uint32_t kvm_apic_get_reg(void *regs, int reg_id)
 {
-    return *((uint32_t *)(kapic->regs + (reg_id << 4)));
+    return *((uint32_t *)((char *)regs + (reg_id << 4)));
 }
 
-static void kvm_put_apic_state(APICCommonState *s, struct kvm_lapic_state *kapic)
+static void kvm_put_apic_state(APICCommonState *s, void *regs)
 {
     int i;
 
-    memset(kapic, 0, sizeof(*kapic));
+    memset(regs, 0, KVM_APIC_REG_SIZE);
+
     if (kvm_has_x2apic_api() && s->apicbase & MSR_IA32_APICBASE_EXTD) {
-        kvm_apic_set_reg(kapic, 0x2, s->initial_apic_id);
+        kvm_apic_set_reg(regs, 0x2, s->initial_apic_id);
     } else {
-        kvm_apic_set_reg(kapic, 0x2, s->id << 24);
+        kvm_apic_set_reg(regs, 0x2, s->id << 24);
     }
-    kvm_apic_set_reg(kapic, 0x8, s->tpr);
-    kvm_apic_set_reg(kapic, 0xd, s->log_dest << 24);
-    kvm_apic_set_reg(kapic, 0xe, s->dest_mode << 28 | 0x0fffffff);
-    kvm_apic_set_reg(kapic, 0xf, s->spurious_vec);
+    kvm_apic_set_reg(regs, 0x8, s->tpr);
+    kvm_apic_set_reg(regs, 0xd, s->log_dest << 24);
+    kvm_apic_set_reg(regs, 0xe, s->dest_mode << 28 | 0x0fffffff);
+    kvm_apic_set_reg(regs, 0xf, s->spurious_vec);
     for (i = 0; i < 8; i++) {
-        kvm_apic_set_reg(kapic, 0x10 + i, s->isr[i]);
-        kvm_apic_set_reg(kapic, 0x18 + i, s->tmr[i]);
-        kvm_apic_set_reg(kapic, 0x20 + i, s->irr[i]);
+        kvm_apic_set_reg(regs, 0x10 + i, s->isr[i]);
+        kvm_apic_set_reg(regs, 0x18 + i, s->tmr[i]);
+        kvm_apic_set_reg(regs, 0x20 + i, s->irr[i]);
     }
-    kvm_apic_set_reg(kapic, 0x28, s->esr);
-    kvm_apic_set_reg(kapic, 0x30, s->icr[0]);
-    kvm_apic_set_reg(kapic, 0x31, s->icr[1]);
+    kvm_apic_set_reg(regs, 0x28, s->esr);
+    kvm_apic_set_reg(regs, 0x30, s->icr[0]);
+    kvm_apic_set_reg(regs, 0x31, s->icr[1]);
     for (i = 0; i < APIC_LVT_NB; i++) {
-        kvm_apic_set_reg(kapic, 0x32 + i, s->lvt[i]);
+        kvm_apic_set_reg(regs, 0x32 + i, s->lvt[i]);
     }
-    kvm_apic_set_reg(kapic, 0x38, s->initial_count);
-    kvm_apic_set_reg(kapic, 0x3e, s->divide_conf);
+    kvm_apic_set_reg(regs, 0x38, s->initial_count);
+    kvm_apic_set_reg(regs, 0x3e, s->divide_conf);
+
 }
 
-void kvm_get_apic_state(DeviceState *dev, struct kvm_lapic_state *kapic)
+void kvm_get_apic_state(DeviceState *dev, void *kapic)
 {
     APICCommonState *s = APIC_COMMON(dev);
     int i, v;
