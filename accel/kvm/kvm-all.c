@@ -4547,12 +4547,13 @@ void kvm_mark_guest_state_protected(void)
     kvm_state->guest_state_protected = true;
 }
 
-int kvm_create_guest_memfd(uint64_t size, uint64_t flags, Error **errp)
+int kvm_create_guest_memfd(uint64_t size, uint64_t flags, int order, Error **errp)
 {
     int fd;
     struct kvm_create_guest_memfd guest_memfd = {
         .size = size,
         .flags = flags,
+        .page_order = order
     };
 
     if (!kvm_guest_memfd_supported) {

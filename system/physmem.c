@@ -1906,6 +1906,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
 
     if (new_block->flags & RAM_GUEST_MEMFD) {
         uint64_t gmem_flags = 0;
+        int gmem_order = 0;
 
         if (!kvm_enabled()) {
             error_setg(errp, "cannot set up private guest memory for %s: KVM required",
@@ -1939,10 +1940,10 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
 
             switch (current_machine->cgs->gmem_page_size) {
             case 0x200000:
-                gmem_flags |= GUESTMEM_HUGETLB_FLAG_2MB;
+                gmem_order = 9;
                 break;
             case 0x40000000:
-                gmem_flags |= GUESTMEM_HUGETLB_FLAG_1GB;
+                gmem_order = 18;
                 break;
             default:
                 error_setg(errp, "guest_memfd does not support the specified hugetlb page size (%d)",
@@ -1952,7 +1953,7 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
         }
 
         new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
-                                                        gmem_flags, errp);
+                                                        gmem_flags, gmem_order, errp);
         if (new_block->guest_memfd < 0) {
             qemu_mutex_unlock_ramlist();
             goto out_free;
