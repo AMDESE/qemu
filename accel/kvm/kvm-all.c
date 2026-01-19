@@ -1643,7 +1643,8 @@ static void kvm_set_phys_mem(KVMMemoryListener *kml,
              * TODO: does this need some sort of discoverability?
              */
             if (current_machine->cgs && current_machine->cgs->convert_in_place) {
-                err = kvm_set_memory_attributes_shared(start_addr, slot_size);
+                //err = kvm_set_memory_attributes_shared(start_addr, slot_size);
+                g_warning("skipping conversion to shared: %lx size %ld\n", start_addr, slot_size);
             } else {
                 err = kvm_set_memory_attributes_private(start_addr, slot_size);
             }
