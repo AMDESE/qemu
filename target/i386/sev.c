@@ -3254,6 +3254,16 @@ static void sev_common_set_ibpb_on_entry(Object *obj, bool value, Error **errp)
     sev_set_feature(SEV_COMMON(obj), SVM_SEV_FEAT_IBPB_ON_ENTRY, value);
 }
 
+static bool sev_common_get_btb_isol(Object *obj, Error **errp)
+{
+    return is_sev_feature_set(SEV_COMMON(obj), SVM_SEV_FEAT_BTB_ISOLATION);
+}
+
+static void sev_common_set_btb_isol(Object *obj, bool value, Error **errp)
+{
+    sev_set_feature(SEV_COMMON(obj), SVM_SEV_FEAT_BTB_ISOLATION, value);
+}
+
 static void
 sev_snp_guest_class_init(ObjectClass *oc, const void *data)
 {
@@ -3298,6 +3308,9 @@ sev_snp_guest_class_init(ObjectClass *oc, const void *data)
     object_class_property_add_bool(oc, "ibpb-on-entry",
                                    sev_common_get_ibpb_on_entry,
                                    sev_common_set_ibpb_on_entry);
+    object_class_property_add_bool(oc, "btb-isol",
+                                   sev_common_get_btb_isol,
+                                   sev_common_set_btb_isol);
 }
 
 static void

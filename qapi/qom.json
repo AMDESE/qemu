@@ -1113,6 +1113,9 @@
 # @ibpb-on-entry: enable IBPB On Entry
 #     (default: false) (since 10.2)
 #
+# @btb-isol: enable BTB Isolation
+#     (default: false) (since 10.2)
+#
 # Since: 9.1
 ##
 { 'struct': 'SevSnpGuestProperties',
@@ -1127,7 +1130,8 @@
             '*vcek-disabled': 'bool',
             '*secure-tsc': 'bool',
             '*tsc-frequency': 'uint32',
-            '*ibpb-on-entry': 'bool' } }
+            '*ibpb-on-entry': 'bool',
+            '*btb-isol': 'bool' } }
 
 ##
 # @TdxGuestProperties:
