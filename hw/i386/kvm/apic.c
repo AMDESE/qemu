@@ -135,6 +135,27 @@ static void kvm_apic_vapic_base_update(APICCommonState *s)
     }
 }
 
+void kvm_initialize_extlvt(X86CPU *cpu, uint8_t nr_extlvt)
+{
+    APICCommonState *s;
+    s = APIC_COMMON(cpu->apic_state);
+
+    s->nr_extlvt = nr_extlvt;
+    s->extlvt = g_malloc0(nr_extlvt * sizeof(uint32_t));
+}
+
+void kvm_uninitialize_extlvt(X86CPU *cpu)
+{
+    APICCommonState *s;
+    s = APIC_COMMON(cpu->apic_state);
+
+    if (s->extlvt) {
+        g_free(s->extlvt);
+        s->extlvt = NULL;
+        s->nr_extlvt = 0;
+    }
+}
+
 static void kvm_apic_put(CPUState *cs, run_on_cpu_data data)
 {
     APICCommonState *s = data.host_ptr;

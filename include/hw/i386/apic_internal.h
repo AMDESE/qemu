@@ -174,6 +174,10 @@ struct APICCommonState {
     uint32_t lvt[APIC_LVT_NB];
     uint32_t esr; /* error register */
     uint32_t icr[2];
+    uint32_t efeat;
+    uint32_t ectrl;
+    uint32_t *extlvt;
+    uint8_t nr_extlvt;
 
     uint32_t divide_conf;
     int count_shift;
