@@ -3130,26 +3130,52 @@ next_memory_region:
         goto out_unref;
     }
 
-    ret = ram_block_attributes_state_change(RAM_BLOCK_ATTRIBUTES(mr->rdm),
-                                            offset, size, to_private);
-    if (ret) {
-        error_report("Failed to notify the listener the state change of "
-                     "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s",
-                     start, size, to_private ? "private" : "shared");
-        goto out_unref;
-    }
-
-    if (to_private) {
-        ret = kvm_set_memory_attributes_private(start, size);
-    } else {
-        ret = kvm_set_memory_attributes_shared(start, size);
-    }
-    if (ret) {
-        goto out_unref;
-    }
-
     addr = memory_region_get_ram_ptr(mr) + section.offset_within_region;
     rb = qemu_ram_block_from_host(addr, false, &offset);
+
+    if (to_private) {
+        /*
+         * The attributes need to be set to private *after* the notification
+         * of a shared->private conversion, since when using VFIO it may not
+         * be possible to update the attribute while it remains pinned due
+         * to the IOMMU mapping, so issue the notification first to ensure
+         * unmappings are done in advance.
+         */
+        ret = ram_block_attributes_state_change(RAM_BLOCK_ATTRIBUTES(mr->rdm),
+                                                offset, size, to_private);
+        if (ret) {
+            error_report("Failed to notify the listener the state change of "
+                         "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s, ret %d",
+                         start, size, to_private ? "private" : "shared", ret);
+            goto out_unref;
+        }
+
+        ret = kvm_set_memory_attributes_private(start, size);
+        if (ret) {
+            goto out_unref;
+        }
+    } else {
+        ret = kvm_set_memory_attributes_shared(start, size);
+        if (ret) {
+            goto out_unref;
+        }
+
+        /*
+         * The attributes need to be set to shared *before* the notification
+         * of a private->shared conversion, since it will possibly result in the
+         * page being mapped into an IOMMU when using VFIO and trigger
+         * guest_memfd's fault handler, which will expect the page to have it's
+         * attributes set to shared.
+         */
+        ret = ram_block_attributes_state_change(RAM_BLOCK_ATTRIBUTES(mr->rdm),
+                                                offset, size, to_private);
+        if (ret) {
+            error_report("Failed to notify the listener the state change of "
+                         "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s, ret %d",
+                         start, size, to_private ? "private" : "shared", ret);
+            goto out_unref;
+        }
+    }
 
     convert_start = section.offset_within_region;
     convert_size = (convert_start + size > mr->size) ?
