@@ -170,6 +170,7 @@ struct VFIOPCIDevice {
     bool has_flr;
     bool has_pm_reset;
     bool has_tee_io;
+    bool tdi_config_locked;
     bool rom_read_failed;
     bool no_kvm_intx;
     bool no_kvm_msi;
