@@ -1252,6 +1252,18 @@ void vfio_pci_write_config(PCIDevice *pdev,
 
     trace_vfio_pci_write_config(vdev->vbasedev.name, addr, val, len);
 
+    if (vdev->tdi_config_locked && addr == PCI_COMMAND) {
+        uint16_t cmd = pci_default_read_config(pdev, PCI_COMMAND, 2);
+
+        if (!(val & PCI_COMMAND_MASTER) && (cmd & PCI_COMMAND_MASTER)) {
+            val |= PCI_COMMAND_MASTER;
+            printf("+++Q+++ (%u) %s %u: TDI locked, keep BME\n", getpid(), __func__, __LINE__);
+        } else if (!(val & PCI_COMMAND_MEMORY) && (cmd & PCI_COMMAND_MEMORY)) {
+            val |= PCI_COMMAND_MEMORY;
+            printf("+++Q+++ (%u) %s %u: TDI locked, keep MSE\n", getpid(), __func__, __LINE__);
+        }
+    }
+
     /* Write everything to VFIO, let it filter out what we can't write */
     if (pwrite(vdev->vbasedev.fd, &val_le, len, vdev->config_offset + addr)
                 != len) {
@@ -3419,6 +3431,7 @@ static const Property vfio_pci_dev_properties[] = {
 #endif
     DEFINE_PROP_BOOL("skip-vsc-check", VFIOPCIDevice, skip_vsc_check, true),
     DEFINE_PROP_BOOL("x-tio", VFIOPCIDevice, vbasedev.tee_io, true),
+    DEFINE_PROP_BOOL("x-tdi-locked", VFIOPCIDevice, tdi_config_locked, false),
 };
 
 #ifdef CONFIG_IOMMUFD
@@ -3431,8 +3444,21 @@ static void vfio_pci_set_fd(Object *obj, const char *str, Error **errp)
 static int vfio_pci_tsm_bind(PCIDevice *pdev, int kvmfd, Error **errp)
 {
     VFIOPCIDevice *vdev = VFIO_PCI(pdev);
+    int ret;
 
-    return vfio_tsm_bind(&vdev->vbasedev, kvmfd, errp);
+    if (kvmfd >= 0) {
+        vdev->tdi_config_locked = true;
+        printf("+++Q+++ (%u) %s %u: START blocking MSE/BME\n", getpid(), __func__, __LINE__);
+    }
+
+    ret = vfio_tsm_bind(&vdev->vbasedev, kvmfd, errp);
+
+    if (kvmfd < 0) {
+        vdev->tdi_config_locked = false;
+        printf("+++Q+++ (%u) %s %u: Stop blocking MSE/BME\n", getpid(), __func__, __LINE__);
+    }
+
+    return ret;
 }
 
 static int vfio_pci_tsm_guest_request(PCIDevice *pdev, void *req, size_t reqlen,
