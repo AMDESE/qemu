@@ -92,7 +92,6 @@ struct HostIOMMUDeviceIOMMUFD {
     uint32_t devid;
     uint32_t ioas_id;
     bool tdi_bound;
-    bool tdi_run;
 };
 
 struct HostIOMMUDeviceIOMMUFDClass {

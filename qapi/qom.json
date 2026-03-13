@@ -963,13 +963,16 @@
 #     the requested size are always honored depends on the policy of
 #     the allocator. (default: host page size)
 #
+# @tsm-helper: /home/aik/p/tsm/tools/crypto/tsm/tsmsysfs.py
+#
 # Since: 10.1
 ##
 { 'struct': 'ConfidentialGuestSupportProperties',
   'data': {
             '*convert-in-place': 'bool',
             '*gmem-allocator': 'GuestMemFdAllocator',
-            '*gmem-page-size': 'uint32' } }
+            '*gmem-page-size': 'uint32',
+	    '*tsm-helper': 'str'} }
 
 ##
 # @SevCommonProperties:
