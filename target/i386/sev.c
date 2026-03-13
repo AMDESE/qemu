@@ -112,6 +112,8 @@ struct SevCommonState {
     bool reset_data_valid;
 
     uint8_t continue_on_failed_tdi_bind;
+
+    char *tsm_helper;
 };
 
 struct SevCommonStateClass {
@@ -2136,8 +2138,31 @@ struct tsm_tdi_status {
         struct tdisp_interface_id id;
 } QEMU_PACKED;
 
+static void tsm_helper(const char *helper, const char *param, const char *fn)
+{
+    if (!helper) {
+        return;
+    }
+
+    int pid = fork();
+
+    if (pid == 0) {
+        const char *args[] = { helper, param, fn, NULL };
+
+        execv(helper, (char **) args);
+        return;
+    }
+
+//    int status = 0;
+//
+//    while (waitpid(pid, &status, 0) != pid) {
+//        /* loop */
+//    }
+}
+
 static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t flags,
-                                uint8_t *data, ssize_t data_len)
+                                uint8_t *data, ssize_t data_len,
+                                const char *tsmhelper)
 {
     char fn[128], dsm[64];
     struct tio_blob_table_entry {
@@ -2169,6 +2194,7 @@ static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t flags,
         off += t[n].length;
         len -= t[n].length;
         ++n;
+        tsm_helper(tsmhelper, "--certificates", fn);
     }
 
     if (flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_MEAS) {
@@ -2183,6 +2209,7 @@ static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t flags,
         off += t[n].length;
         len -= t[n].length;
         ++n;
+        tsm_helper(tsmhelper, "--measurements", fn);
     }
 
     if (flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_REPORT) {
@@ -2197,12 +2224,13 @@ static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t flags,
         t[n].offset = off;
         t[n].length = read_full(fn, data + off, len);
         ++n;
+        tsm_helper(tsmhelper, "--report", fn);
     }
 
     memset(&t[n], 0, sizeof(*t));
 }
 
-static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev)
+static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev, const char *tsmhelper)
 {
     char fn[128];
     struct tsm_tdi_status status = {};
@@ -2218,6 +2246,7 @@ static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev)
         vm_stop(RUN_STATE_INTERNAL_ERROR);
     }
     trace_sev_snp_tdi_status(vdev->vbasedev.name, ret);
+    tsm_helper(tsmhelper, "--tdi", fn);
 
     return ret;
 }
@@ -2349,11 +2378,11 @@ static int kvm_handle_vmgexit_tio_req(SevCommonState *sev_common, struct kvm_use
     }
 
     if (ex->tio_req.data_npages) {
-        sev_tio_store_certs(vdev, ex->tio_req.flags, data, data_len);
+        sev_tio_store_certs(vdev, ex->tio_req.flags, data, data_len, sev_common->tsm_helper);
     }
 
     if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_STATE) {
-        ex->tio_req.tdi_status = sev_tio_read_status(vdev);
+        ex->tio_req.tdi_status = sev_tio_read_status(vdev, sev_common->tsm_helper);
     }
 
 unmap_exit:
@@ -2504,6 +2533,18 @@ sev_common_set_discard(Object *obj, const char *value, Error **errp)
     SEV_COMMON(obj)->discard = g_strdup(value);
 }
 
+static char *
+sev_common_get_tsm_helper(Object *obj, Error **errp)
+{
+    return g_strdup(SEV_COMMON(obj)->tsm_helper);
+}
+
+static void
+sev_common_set_tsm_helper(Object *obj, const char *value, Error **errp)
+{
+    SEV_COMMON(obj)->tsm_helper = g_strdup(value);
+}
+
 static void
 sev_common_class_init(ObjectClass *oc, void *data)
 {
@@ -2524,6 +2565,9 @@ sev_common_class_init(ObjectClass *oc, void *data)
     object_class_property_add_str(oc, "discard",
                                   sev_common_get_discard,
                                   sev_common_set_discard);
+    object_class_property_add_str(oc, "tsm-helper",
+                                  sev_common_get_tsm_helper,
+                                  sev_common_set_tsm_helper);
 }
 
 static void
