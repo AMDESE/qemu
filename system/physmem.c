@@ -2208,8 +2208,8 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             goto out_free;
         }
 
-        new_block->guest_memfd = kvm_create_guest_memfd(new_block->max_length,
-                                                        0, errp);
+        new_block->guest_memfd = kvm_create_guest_memfd_private(new_block->max_length,
+                                                                errp);
         if (new_block->guest_memfd < 0) {
             qemu_mutex_unlock_ramlist();
             goto out_free;
@@ -2841,8 +2841,8 @@ int ram_block_rebind(Error **errp)
             if (block->guest_memfd >= 0) {
                 close(block->guest_memfd);
             }
-            block->guest_memfd = kvm_create_guest_memfd(block->max_length,
-                                                        0, errp);
+            block->guest_memfd = kvm_create_guest_memfd_private(block->max_length,
+                                                                errp);
             if (block->guest_memfd < 0) {
                 qemu_mutex_unlock_ramlist();
                 return -1;

@@ -1745,9 +1745,10 @@ bool memory_region_is_protected(const MemoryRegion *mr);
 
 /**
  * memory_region_has_guest_memfd: check whether a memory region has guest_memfd
- *     associated
+ *     associated with it for handling private memory
  *
- * Returns %true if a memory region's ram_block has valid guest_memfd assigned.
+ * Returns %true if a memory region's ram_block has valid guest_memfd assigned
+ * for handling private memory.
  *
  * @mr: the memory region being queried
  */
