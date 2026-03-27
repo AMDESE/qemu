@@ -794,6 +794,11 @@ static int kvm_mem_flags(MemoryRegion *mr)
     }
     if (memory_region_has_guest_memfd_private(mr)) {
         assert(kvm_guest_memfd_supported);
+        /*
+         * memory_region_has_guest_memfd_private() is specifically pertaining to
+         * using guest_memfd to handle private memory use cases.
+         */
+        assert(kvm_supported_memory_attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE);
         flags |= KVM_MEM_GUEST_MEMFD;
     }
     return flags;
@@ -4872,4 +4877,14 @@ int kvm_create_guest_memfd(uint64_t size, uint64_t flags, Error **errp)
     }
 
     return fd;
+}
+
+int kvm_create_guest_memfd_private(uint64_t size, Error **errp)
+{
+    if (!(kvm_supported_memory_attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)) {
+        error_setg(errp, "KVM does not support using guest_memfd for private memory");
+        return -1;
+    }
+
+    return kvm_create_guest_memfd(size, 0, errp);
 }
