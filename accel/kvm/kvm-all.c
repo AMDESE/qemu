@@ -108,6 +108,7 @@ static bool kvm_has_guest_debug;
 static int kvm_sstep_flags;
 static bool kvm_immediate_exit;
 static uint64_t kvm_supported_memory_attributes;
+static uint64_t kvm_supported_guest_memfd_flags;
 static bool kvm_guest_memfd_supported;
 static hwaddr kvm_max_slot_size = ~0;
 
@@ -3064,6 +3065,7 @@ static int kvm_init(AccelState *as, MachineState *ms)
     }
 
     kvm_supported_memory_attributes = kvm_vm_check_extension(s, KVM_CAP_MEMORY_ATTRIBUTES);
+    kvm_supported_guest_memfd_flags = kvm_vm_check_extension(s, KVM_CAP_GUEST_MEMFD_FLAGS);
     kvm_guest_memfd_supported =
         kvm_vm_check_extension(s, KVM_CAP_GUEST_MEMFD) &&
         kvm_vm_check_extension(s, KVM_CAP_USER_MEMORY2);
@@ -4807,4 +4809,15 @@ int kvm_create_guest_memfd_private(uint64_t size, Error **errp)
     }
 
     return kvm_create_guest_memfd(size, 0, errp);
+}
+
+int kvm_create_guest_memfd_shared(uint64_t size, Error **errp)
+{
+    if (!(kvm_supported_guest_memfd_flags & GUEST_MEMFD_FLAG_MMAP) ||
+        !(kvm_supported_guest_memfd_flags & GUEST_MEMFD_FLAG_INIT_SHARED)) {
+        error_setg(errp, "KVM does not support using guest_memfd for shared memory.");
+        return -1;
+    }
+
+    return kvm_create_guest_memfd(size, GUEST_MEMFD_FLAG_MMAP|GUEST_MEMFD_FLAG_INIT_SHARED, errp);
 }

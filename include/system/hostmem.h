@@ -41,6 +41,8 @@ OBJECT_DECLARE_TYPE(HostMemoryBackend, HostMemoryBackendClass,
 
 #define TYPE_MEMORY_BACKEND_MEMFD "memory-backend-memfd"
 
+#define TYPE_MEMORY_BACKEND_GUEST_MEMFD "memory-backend-guest-memfd"
+
 
 /**
  * HostMemoryBackendClass:

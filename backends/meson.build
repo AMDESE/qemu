@@ -20,6 +20,7 @@ endif
 if host_os == 'linux'
   system_ss.add(files('hostmem-memfd.c'))
   system_ss.add(files('host_iommu_device.c'))
+  system_ss.add(files('hostmem-guest-memfd.c'))
 endif
 if keyutils.found()
     system_ss.add(keyutils, files('cryptodev-lkcf.c'))

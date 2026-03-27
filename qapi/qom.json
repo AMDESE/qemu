@@ -773,6 +773,18 @@
   'if': 'CONFIG_LINUX' }
 
 ##
+# @MemoryBackendGuestMemfdProperties:
+#
+# Properties for memory-backend-guest-memfd objects.
+#
+# Since: 11.0
+##
+{ 'struct': 'MemoryBackendGuestMemfdProperties',
+  'base': 'MemoryBackendProperties',
+  'data': {},
+  'if': 'CONFIG_LINUX' }
+
+##
 # @MemoryBackendShmProperties:
 #
 # Properties for memory-backend-shm objects.
@@ -1226,6 +1238,8 @@
     'memory-backend-file',
     { 'name': 'memory-backend-memfd',
       'if': 'CONFIG_LINUX' },
+    { 'name': 'memory-backend-guest-memfd',
+      'if': 'CONFIG_LINUX' },
     'memory-backend-ram',
     { 'name': 'memory-backend-shm',
       'if': 'CONFIG_POSIX' },
@@ -1303,6 +1317,8 @@
                                       'if': 'CONFIG_LINUX' },
       'memory-backend-file':        'MemoryBackendFileProperties',
       'memory-backend-memfd':       { 'type': 'MemoryBackendMemfdProperties',
+                                      'if': 'CONFIG_LINUX' },
+      'memory-backend-guest-memfd': { 'type': 'MemoryBackendGuestMemfdProperties',
                                       'if': 'CONFIG_LINUX' },
       'memory-backend-ram':         'MemoryBackendProperties',
       'memory-backend-shm':         { 'type': 'MemoryBackendShmProperties',
