@@ -248,6 +248,7 @@ for i in "$hdrdir"/include/linux/*virtio*.h \
          "$hdrdir/include/linux/input-event-codes.h" \
          "$hdrdir/include/linux/udmabuf.h" \
          "$hdrdir/include/linux/pci_regs.h" \
+         "$hdrdir/include/linux/typelimits.h" \
          "$hdrdir/include/linux/ethtool.h" \
          "$hdrdir/include/linux/const.h" \
          "$hdrdir/include/linux/kernel.h" \
@@ -262,6 +263,8 @@ mkdir -p "$output/include/standard-headers/misc"
 cp_portable "$hdrdir/include/misc/pvpanic.h" \
             "$output/include/standard-headers/misc"
 mkdir -p "$output/include/standard-headers/drm"
+cp_portable "$hdrdir/include/drm/drm_fourcc.h" \
+            "$output/include/standard-headers/drm"
 cp_portable "$hdrdir/include/drm/drm_fourcc.h" \
             "$output/include/standard-headers/drm"
 
