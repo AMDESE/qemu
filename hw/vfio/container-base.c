@@ -17,12 +17,13 @@
 
 int vfio_container_dma_map(VFIOContainerBase *bcontainer,
                            hwaddr iova, ram_addr_t size,
-                           void *vaddr, bool readonly, int memfd)
+                           void *vaddr, bool readonly,
+                           MemoryRegion *mr)
 {
     VFIOIOMMUClass *vioc = VFIO_IOMMU_GET_CLASS(bcontainer);
 
     g_assert(vioc->dma_map);
-    return vioc->dma_map(bcontainer, iova, size, vaddr, readonly, memfd);
+    return vioc->dma_map(bcontainer, iova, size, vaddr, readonly, mr);
 }
 
 int vfio_container_dma_unmap(VFIOContainerBase *bcontainer,

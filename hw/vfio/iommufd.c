@@ -27,10 +27,20 @@
 #include "pci.h"
 
 static int iommufd_cdev_map(const VFIOContainerBase *bcontainer, hwaddr iova,
-                            ram_addr_t size, void *vaddr, bool readonly, int memfd)
+                            ram_addr_t size, void *vaddr,
+                            bool readonly, MemoryRegion *mr)
 {
     const VFIOIOMMUFDContainer *container =
         container_of(bcontainer, VFIOIOMMUFDContainer, bcontainer);
+    int memfd = -1;
+
+    if (mr && memory_region_has_guest_memfd(mr)) {
+        ram_addr_t offset = (uint8_t *)vaddr -
+                            (uint8_t *)memory_region_get_ram_ptr(mr);
+
+        memfd = memory_region_get_guest_memfd(mr);
+        vaddr = (void *) offset;
+    }
 
     return iommufd_backend_map_dma(container->be,
                                    container->ioas_id,

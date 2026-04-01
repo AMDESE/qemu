@@ -1894,6 +1894,11 @@ bool memory_region_has_guest_memfd_only(MemoryRegion *mr)
            current_machine->cgs->convert_in_place;
 }
 
+int memory_region_get_guest_memfd(MemoryRegion *mr)
+{
+    return memory_region_has_guest_memfd(mr) ? mr->ram_block->guest_memfd : -1;
+}
+
 uint8_t memory_region_get_dirty_log_mask(MemoryRegion *mr)
 {
     uint8_t mask = mr->dirty_log_mask;

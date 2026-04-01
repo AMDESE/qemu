@@ -1815,6 +1815,15 @@ bool memory_region_is_protected(MemoryRegion *mr);
 bool memory_region_has_guest_memfd(MemoryRegion *mr);
 
 /**
+ * memory_region_get_guest_memfd: get guest_memfd of a memory region
+ *
+ * Returns guest_memfd of a memory region if it has guest_memfd assigned.
+ * Otherwise, -1 is returned.
+ *
+ * @mr: the memory region being queried
+ */
+int memory_region_get_guest_memfd(MemoryRegion *mr);
+/**
  * memory_region_get_iommu: check whether a memory region is an iommu
  *
  * Returns pointer to IOMMUMemoryRegion if a memory region is an iommu,
