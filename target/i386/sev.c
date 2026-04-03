@@ -16,7 +16,6 @@
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>
 #include <linux/psp-sev.h>
-
 #include <sys/ioctl.h>
 
 #include "qapi/error.h"
@@ -39,6 +38,7 @@
 #include "qapi/qapi-commands-misc-target.h"
 #include "confidential-guest.h"
 #include "hw/i386/pc.h"
+#include "hw/vfio/pci.h"
 #include "exec/address-spaces.h"
 #include "qemu/queue.h"
 
@@ -110,6 +110,8 @@ struct SevCommonState {
     uint32_t reset_cs;
     uint32_t reset_ip;
     bool reset_data_valid;
+
+    uint8_t continue_on_failed_tdi_bind;
 };
 
 struct SevCommonStateClass {
@@ -2060,6 +2062,414 @@ bool sev_add_kernel_loader_hashes(SevKernelLoaderContext *ctx, Error **errp)
     return klass->build_kernel_loader_hashes(sev_common, area, ctx, errp);
 }
 
+static ssize_t read_full(const char *fn, uint8_t *buf, ssize_t len)
+{
+    int fd;
+    ssize_t rb;
+
+    if (len <= 0) {
+        return 0;
+    }
+    fd = open(fn, O_RDONLY);
+    if (fd < 0) {
+        return 0;
+    }
+    rb = read(fd, buf, len);
+    close(fd);
+    trace_sev_read_file(fn, rb);
+
+    return rb;
+}
+
+static ssize_t write_full(const char *fn, uint8_t *buf, ssize_t len)
+{
+    int fd;
+    ssize_t wb;
+
+    if (len <= 0) {
+        return 0;
+    }
+    fd = open(fn, O_WRONLY);
+    if (fd < 0) {
+        return 0;
+    }
+    wb = write(fd, buf, len);
+    close(fd);
+    trace_sev_write_file(fn, wb);
+
+    return wb;
+}
+
+struct tdisp_interface_id {
+        __u32 function_id; /* TSM_TDISP_IID_xxxx */
+        __u8 reserved[8];
+} QEMU_PACKED;
+
+enum tsm_tdisp_state {
+        TDISP_STATE_CONFIG_UNLOCKED = 0,
+        TDISP_STATE_CONFIG_LOCKED = 1,
+        TDISP_STATE_RUN = 2,
+        TDISP_STATE_ERROR = 3,
+};
+
+enum tsm_tdisp_status {
+        TDISP_STATE_BOUND = 0,
+        TDISP_STATE_INVALID = 1,
+        TDISP_STATE_UNBOUND = 2,
+};
+
+struct tsm_tdi_status {
+        __u8 status; /* enum tsm_tdisp_status */
+        __u8 state; /* enum tsm_tdisp_state */
+        __u8 meas_digest_fresh;
+        __u8 meas_digest_valid;
+        __u8 all_request_redirect;
+        __u8 bind_p2p;
+        __u8 lock_msix;
+        __u8 no_fw_update;
+        __u16 cache_line_size;
+        __u64 spdm_algos; /* Bitmask of TSM_SPDM_ALGOS */
+        __u8 certs_digest[48];
+        __u8 meas_digest[48];
+        __u8 interface_report_digest[48];
+        __u64 intf_report_counter;
+        struct tdisp_interface_id id;
+} QEMU_PACKED;
+
+static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t flags,
+                                uint8_t *data, ssize_t data_len)
+{
+    char fn[128], dsm[64];
+    struct tio_blob_table_entry {
+        QemuUUID guid;
+        uint32_t offset;
+        uint32_t length;
+    } QEMU_PACKED *t = (struct tio_blob_table_entry *) data;
+    ssize_t off = sizeof(*t) * 4, len = data_len - off;
+    int n = 0;
+
+    snprintf(fn, sizeof(fn) - 1,
+             "/sys/bus/pci/devices/%04x:%02x:%02x.%01x/tsm/dsm",
+             vdev->host.domain, vdev->host.bus, vdev->host.slot, vdev->host.function);
+    if (read_full(fn, (uint8_t *) dsm, sizeof(dsm)) <= 0) {
+        warn_report("No DSM in %s", fn);
+        return;
+    }
+    dsm[12] = 0; // Chop \n off
+
+    if (flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_CERTS) {
+        QemuUUID certuuid = { .data =
+            UUID_LE(0x078ccb75, 0x2644, 0x49e8, 0xaf, 0xe7, 0x56, 0x86, 0xc5, 0xcf, 0x72, 0xf1)
+        };
+
+        snprintf(fn, sizeof(fn) - 1, "/sys/bus/pci/devices/%s/tsm/certs", dsm);
+        t[n].guid = certuuid;
+        t[n].offset = off;
+        t[n].length = read_full(fn, data + off, len);
+        off += t[n].length;
+        len -= t[n].length;
+        ++n;
+    }
+
+    if (flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_MEAS) {
+        QemuUUID measuuid = { .data =
+            UUID_LE(0x5caa80c6, 0x12ef, 0x401a, 0xb3, 0x64, 0xec, 0x59, 0xa9, 0x3a, 0xbe, 0x3f)
+        };
+
+        snprintf(fn, sizeof(fn) - 1, "/sys/bus/pci/devices/%s/tsm/meas", dsm);
+        t[n].guid = measuuid;
+        t[n].offset = off;
+        t[n].length = read_full(fn, data + off, len);
+        off += t[n].length;
+        len -= t[n].length;
+        ++n;
+    }
+
+    if (flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_REPORT) {
+        QemuUUID repouuid = { .data =
+            UUID_LE(0x70dc5b0e, 0x0cc0, 0x4cd5, 0x97, 0xbb, 0xff, 0x0b, 0xa2, 0x5b, 0xf3, 0x20)
+        };
+
+        snprintf(fn, sizeof(fn) - 1,
+                 "/sys/bus/pci/devices/%04x:%02x:%02x.%01x/tsm/report",
+                 vdev->host.domain, vdev->host.bus, vdev->host.slot, vdev->host.function);
+        t[n].guid = repouuid;
+        t[n].offset = off;
+        t[n].length = read_full(fn, data + off, len);
+        ++n;
+    }
+
+    memset(&t[n], 0, sizeof(*t));
+}
+
+static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev)
+{
+    char fn[128];
+    struct tsm_tdi_status status = {};
+    uint8_t ret = 0;
+
+    snprintf(fn, sizeof(fn) - 1,
+             "/sys/bus/pci/devices/%04x:%02x:%02x.%01x/tsm/tdi_status",
+             vdev->host.domain, vdev->host.bus, vdev->host.slot, vdev->host.function);
+
+    if (sizeof(status) <= read_full(fn, (uint8_t *) &status, sizeof(status))) {
+        ret = status.state;
+    } else {
+        vm_stop(RUN_STATE_INTERNAL_ERROR);
+    }
+    trace_sev_snp_tdi_status(vdev->vbasedev.name, ret);
+
+    return ret;
+}
+
+static void sev_tio_set_nonce(VFIOPCIDevice *vdev, uint8_t *data, ssize_t data_len)
+{
+    char fn[128];
+    uint8_t nonce[32] = {};
+
+    snprintf(fn, sizeof(fn) - 1,
+             "/sys/bus/pci/devices/%04x:%02x:%02x.%01x/physfn/tsm/meas_nonce",
+             vdev->host.domain, vdev->host.bus,
+             vdev->host.slot, vdev->host.function);
+    memcpy(nonce, data, MIN(data_len, sizeof(nonce)));
+    write_full(fn, nonce, sizeof(nonce));
+}
+
+static int kvm_handle_vmgexit_tio_req(SevCommonState *sev_common, struct kvm_user_vmgexit *ex)
+{
+    PCIDevice *pdev = NULL;
+    VFIOPCIDevice *vdev;
+    PCIETSMIfClass *tsmk;
+    Object *tsmko, *vdevko;
+    int ret, fw_err = 0;
+    hwaddr data_len;
+    Error *err = NULL;
+    uint8_t *data = NULL;
+    MemTxAttrs attrs = { 0 };
+    uint8_t dom = ex->tio_req.guest_rid >> 16;
+    uint8_t bus = PCI_BUS_NUM(ex->tio_req.guest_rid);
+    uint8_t slot = PCI_SLOT(ex->tio_req.guest_rid);
+    uint8_t func = PCI_FUNC(ex->tio_req.guest_rid);
+
+    ret = pci_qdev_find_device_by_pciid(dom, bus, PCI_DEVFN(slot, func), &pdev);
+    if (ret) {
+        return ret;
+    }
+    vdev = VFIO_PCI(pdev);
+
+    tsmko = object_dynamic_cast(OBJECT(pdev), INTERFACE_PCIE_TSM_DEVICE);
+    vdevko = object_dynamic_cast(OBJECT(pdev), TYPE_VFIO_PCI);
+    if (!tsmko || !vdevko) {
+        return -EPERM;
+    }
+    tsmk = PCIE_TSM_DEVICE_GET_CLASS(tsmko);
+
+    /* Guest requests use 1 page for request and 1 page for response */
+    hwaddr req_len = 4096, rsp_len = 4096;
+    void *req = address_space_map(&address_space_memory, ex->tio_req.req_spa,
+                                  &req_len, false, attrs);
+    void *rsp = address_space_map(&address_space_memory, ex->tio_req.rsp_spa,
+                                  &rsp_len, true, attrs);
+
+    if (!req || !rsp) {
+        goto unmap_exit;
+    }
+
+    if (ex->tio_req.data_npages) {
+        data_len = ex->tio_req.data_npages << 12;
+        data = address_space_map(&address_space_memory, ex->tio_req.data_gpa,
+                                 &data_len, true, attrs);
+        if (!data) {
+            goto unmap_exit;
+        }
+    }
+
+    struct snp_guest_msg_hdr {
+#define MAX_AUTHTAG_LEN         32
+#define TIO_MSG_TDI_INFO_REQ    0x13
+#define TIO_MSG_SDTE_WRITE_REQ  0x19
+        uint8_t authtag[MAX_AUTHTAG_LEN];
+        uint64_t msg_seqno;
+        uint8_t rsvd1[8];
+        uint8_t algo;
+        uint8_t hdr_version;
+        uint16_t hdr_sz;
+        uint8_t msg_type;
+        uint8_t msg_version;
+        uint16_t msg_sz;
+        uint32_t rsvd2;
+        uint8_t msg_vmpck;
+        uint8_t rsvd3[35];
+    } QEMU_PACKED *rqh = req, *rsh = rsp;
+    bool get_info = (rqh->msg_type == TIO_MSG_TDI_INFO_REQ);
+    bool sdte_msg = (rqh->msg_type == TIO_MSG_SDTE_WRITE_REQ);
+
+/* Use BE for what it is good for - binary dump of 8 bytes */
+#define DUMPHEX8(h) cpu_to_be64(*(uint64_t *)(h))
+    trace_sev_tio_guest_req_enter(dom, bus, slot, func, rqh->msg_type, rqh->msg_seqno,
+                                  rqh->msg_sz, rqh->algo, data ? DUMPHEX8(data) : 0,
+                                  DUMPHEX8(rqh->authtag));
+
+#define MMIO_VALIDATE_GPA(r)      ((r) & 0x000FFFFFFFFFF000ULL)
+#define MMIO_VALIDATE_LEN(r)      (1ULL << (12 + (((r) >> 4) & 0xFF)))
+#define MMIO_VALIDATE_RANGEID(r)  ((r) & 0x7)
+#define MMIO_VALIDATE_RESERVED(r) ((r) & 0xFFF0000000000000ULL)
+#define MMIO_VALIDATE_PRIVATE(r)  (!!((r) & BIT(3)))
+
+    if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_MMIO_CONFIG) {
+        printf("+++Q+++ (%u) %s %u: TODO FIXME MMIO_CONFIG\n", getpid(), __func__, __LINE__);
+        goto unmap_exit;
+    }
+    printf("+++Q+++ (%u) %s %u\n", getpid(), __func__, __LINE__);
+
+    if (data && get_info && (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_MEAS)) {
+        sev_tio_set_nonce(vdev, data, data_len);
+    }
+
+    if (sdte_msg) {
+        if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_SDTE_VALIDATE) {
+            tsmk->tsm_remap(pdev, ex->tio_req.gpa & ~0xFFF, &err);
+        } else {
+            tsmk->tsm_remap(pdev, 0, &err);
+        }
+    }
+
+    ret = tsmk->tsm_guest_request(pdev, req, 4096, rsp, 4096, &fw_err);
+
+    ex->tio_req.fw_err = fw_err;
+
+    trace_sev_tio_guest_req(dom, bus, slot, func, rsh->msg_type, rsh->msg_seqno,
+                            rsh->msg_sz, rsh->algo, data ? DUMPHEX8(data) : 0,
+                            DUMPHEX8(rsh->authtag));
+    if (ret || fw_err) {
+        trace_sev_tio_guest_req_ret(dom, bus, slot, func, ret, fw_err);
+    }
+    if (ret) {
+        goto unmap_exit;
+    }
+
+    if (ex->tio_req.data_npages) {
+        sev_tio_store_certs(vdev, ex->tio_req.flags, data, data_len);
+    }
+
+    if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_STATE) {
+        ex->tio_req.tdi_status = sev_tio_read_status(vdev);
+    }
+
+unmap_exit:
+    if (data) {
+        address_space_unmap(&address_space_memory, data, data_len, true, data_len);
+    }
+    if (req) {
+        address_space_unmap(&address_space_memory, req, req_len, false, req_len);
+    }
+    if (rsp) {
+        address_space_unmap(&address_space_memory, rsp, rsp_len, true, rsp_len);
+    }
+    return ret;
+}
+
+static int kvm_handle_vmgexit_tio_op(SevCommonState *sev_common, struct kvm_user_vmgexit *ex)
+{
+    PCIDevice *pdev = NULL;
+    PCIETSMIfClass *tsmk;
+    Object *tsmko;
+    int ret = 0, bind_fd = 0;
+    int fw_err = 0;
+    Error *err = NULL;
+    MachineState *ms = MACHINE(qdev_get_machine());
+    KVMState *kvm_state = KVM_STATE(ms->accelerator);
+    uint8_t dom = ex->tio_op.guest_rid >> 16;
+    uint8_t bus = PCI_BUS_NUM(ex->tio_op.guest_rid);
+    uint8_t slot = PCI_SLOT(ex->tio_op.guest_rid);
+    uint8_t func = PCI_FUNC(ex->tio_op.guest_rid);
+
+    ret = pci_qdev_find_device_by_pciid(dom, bus, PCI_DEVFN(slot, func), &pdev);
+    if (ret) {
+        error_report("TIO_OP: Failed to find device (dom=%u, bus=%u, slot=%u, func=%u)",
+                     dom, bus, slot, func);
+        ex->tio_op.fw_err = ret;
+        return ret;
+    }
+
+    tsmko = object_dynamic_cast(OBJECT(pdev), INTERFACE_PCIE_TSM_DEVICE);
+    if (!tsmko) {
+        error_report("TIO_OP: Device is not a TSM device");
+        ex->tio_op.fw_err = -EPERM;
+        return -EPERM;
+    }
+
+    tsmk = PCIE_TSM_DEVICE_GET_CLASS(tsmko);
+
+    if (ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND ||
+        ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_UNBIND) {
+
+        if (ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND) {
+            bind_fd = kvm_vmfd(kvm_state);
+        } else if (ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_UNBIND) {
+            bind_fd = -1;
+        }
+
+        ret = tsmk->tsm_bind(pdev, bind_fd, &err);
+        if (ret) {
+            if (err) {
+                error_report_err(err);
+            }
+            fw_err = ret;
+        }
+        ex->tio_op.fw_err = fw_err;
+        if (ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND) {
+            ex->tio_op.fw_tdi_id = 0x1234DEADBEEFULL; /* TODO: call TDI INFO first and copy the ID */
+        }
+        trace_sev_tio_op(dom, bus, slot, func,
+                         ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND ? "BIND" : "UNBIND",
+                         bind_fd, ret, fw_err, ex->tio_op.fw_tdi_id);
+    } else /* RUN or STOP */ {
+        uint8_t runstate = ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_RUN;
+
+        ret = tsmk->tsm_guest_request(pdev, &runstate, sizeof(runstate), NULL, 0, &fw_err);
+
+        trace_sev_tio_op(dom, bus, slot, func,
+                         runstate ? "RUN" : "STOP", 0, ret, fw_err, 0);
+        printf("+++Q+++ (%u) %s %u: OP=%d ret=%d fw_err=%d\n", getpid(), __func__, __LINE__,
+                ex->tio_op.op, ret, fw_err);
+
+        ex->tio_op.fw_err = fw_err;
+    }
+
+    return ret;
+}
+
+int kvm_handle_vmgexit(struct kvm_run *run)
+{
+    int ret;
+    SevCommonState *sev_common = SEV_COMMON(MACHINE(qdev_get_machine())->cgs);
+
+    if (run->vmgexit.type == KVM_USER_VMGEXIT_TIO_REQ) {
+        ret = kvm_handle_vmgexit_tio_req(sev_common, &run->vmgexit);
+        if (ret) {
+            if (sev_common->continue_on_failed_tdi_bind) {
+                ret = 0;
+            } else {
+                vm_stop(RUN_STATE_INTERNAL_ERROR);
+                warn_report("Stopping VM");
+                ret = 0;
+            }
+        }
+    } else if (run->vmgexit.type == KVM_USER_VMGEXIT_TIO_OP) {
+        ret = kvm_handle_vmgexit_tio_op(sev_common, &run->vmgexit);
+        if (ret) {
+            vm_stop(RUN_STATE_INTERNAL_ERROR);
+            warn_report("Stopping VM");
+        }
+    } else {
+        warn_report("KVM: unknown vmgexit type: %d", run->vmgexit.type);
+        ret = -1;
+    }
+
+    return ret;
+}
+
 static char *
 sev_common_get_sev_device(Object *obj, Error **errp)
 {
@@ -2130,6 +2540,9 @@ sev_common_instance_init(Object *obj)
     object_property_add_uint32_ptr(obj, "reduced-phys-bits",
                                    &sev_common->reduced_phys_bits,
                                    OBJ_PROP_FLAG_READWRITE);
+    object_property_add_uint8_ptr(obj, "tdibind-cont",
+                                  &sev_common->continue_on_failed_tdi_bind,
+                                  OBJ_PROP_FLAG_READWRITE);
 }
 
 /* sev guest info common to sev/sev-es/sev-snp */
