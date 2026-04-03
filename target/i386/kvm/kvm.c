@@ -6117,6 +6117,9 @@ int kvm_arch_handle_exit(CPUState *cs, struct kvm_run *run)
         ret = kvm_xen_handle_exit(cpu, &run->xen);
         break;
 #endif
+    case KVM_EXIT_VMGEXIT:
+        ret = kvm_handle_vmgexit(run);
+        break;
     case KVM_EXIT_HYPERCALL:
         ret = kvm_handle_hypercall(run);
         break;

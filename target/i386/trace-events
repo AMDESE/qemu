@@ -15,3 +15,10 @@ kvm_sev_snp_launch_start(uint64_t policy, char *gosvw) "policy 0x%" PRIx64 " gos
 kvm_sev_snp_launch_update(uint64_t src, uint64_t gpa, uint64_t len, const char *type) "src 0x%" PRIx64 " gpa 0x%" PRIx64 " len 0x%" PRIx64 " (%s page)"
 kvm_sev_snp_launch_finish(char *id_block, char *id_auth, char *host_data) "id_block %s id_auth %s host_data %s"
 sev_platform_ioctl(int fd, int cmd, int ret, int psperror) "fd=%d cmd=0x%x ret=%d psp=%d"
+sev_read_file(const char *fn, ssize_t rb) "%s, %ld bytes"
+sev_write_file(const char *fn, ssize_t rb) "%s, %ld bytes"
+sev_snp_tdi_status(const char *dev, unsigned status) "%s TDI status is %d"
+sev_tio_guest_req_enter(uint8_t dom, uint8_t bus, uint8_t slot, uint8_t func, uint8_t msg_type, uint64_t msg_seqno, uint16_t msg_sz, uint8_t algo, uint64_t data, uint64_t authtag) "%04x:%02x:%02x.%d Type=%x seq#=0x%"PRIx64 " sz=%d algo=%x data/nonce=%016" PRIx64".. authtag=%016" PRIx64 ".."
+sev_tio_guest_req(uint8_t dom, uint8_t bus, uint8_t slot, uint8_t func, uint8_t msg_type, uint64_t msg_seqno, uint16_t msg_sz, uint8_t algo, uint64_t data, uint64_t authtag) "%04x:%02x:%02x.%d Type=%x seq#=0x%"PRIx64 " sz=%d algo=%x data/nonce=%016" PRIx64".. authtag=%016" PRIx64 ".."
+sev_tio_guest_req_ret(uint8_t dom, uint8_t bus, uint8_t slot, uint8_t func, int ret, int fw_ret) "%04x:%02x:%02x.%d ret=%d fw_ret=%x"
+sev_tio_op(uint8_t dom, uint8_t bus, uint8_t slot, uint8_t func, const char *op, int kvmfd, int ret, int fw_ret, uint64_t tdi_id) "%04x:%02x:%02x.%d %s kvmfd=%d ret=%d fw_ret=%x TDI_ID=0x%"PRIx64
