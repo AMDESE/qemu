@@ -1208,7 +1208,7 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest,
      * KVM_SEV_SNP_LAUNCH_UPDATE requires that GPA ranges have the private
      * memory attribute set in advance.
      */
-    ret = kvm_set_memory_attributes_private(data->gpa, data->len);
+    ret = kvm_set_memory_attributes_private(data->gpa, data->len, true);
     if (ret) {
         error_report("SEV-SNP: failed to configure initial"
                      "private guest memory");
@@ -1993,6 +1993,17 @@ static int sev_snp_kvm_init(ConfidentialGuestSupport *cgs, Error **errp)
         x86ms->smm = ON_OFF_AUTO_OFF;
     } else if (x86ms->smm == ON_OFF_AUTO_ON) {
         error_setg(errp, "SEV-SNP does not support SMM.");
+        return -1;
+    }
+
+    if (cgs->convert_in_place &&
+        !(kvm_vm_check_extension(kvm_state, KVM_CAP_MEMORY_ATTRIBUTES2_FLAGS)
+          & KVM_SET_MEMORY_ATTRIBUTES2_PRESERVE)) {
+        error_setg(errp,
+                   "In-place conversion for SEV-SNP is only supported if "
+                   "private memory attributes can be set without destroying "
+                   "initial memory contents, but the current host kernel "
+                   "does not advertise support for this.");
         return -1;
     }
 
