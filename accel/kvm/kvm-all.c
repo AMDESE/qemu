@@ -110,6 +110,7 @@ static bool kvm_has_guest_debug;
 static int kvm_sstep_flags;
 static bool kvm_immediate_exit;
 static uint64_t kvm_supported_memory_attributes;
+static uint64_t kvm_supported_memory_attributes2_flags;
 static uint64_t kvm_supported_guest_memfd_flags;
 static bool kvm_guest_memfd_supported;
 static hwaddr kvm_max_slot_size = ~0;
@@ -1645,16 +1646,17 @@ static int kvm_gmem_ioctl(int guest_memfd, unsigned long type, ...)
 }
 
 static int guest_memfd_set_memory_attributes_fd(int guest_memfd, hwaddr offset,
-                                                uint64_t size, uint64_t attr)
+                                                uint64_t size, uint64_t attr, uint64_t flags)
 {
     struct kvm_memory_attributes2 attrs;
     int r;
 
     assert((attr & kvm_supported_memory_attributes) == attr);
+    assert((flags & kvm_supported_memory_attributes2_flags) == flags);
     attrs.attributes = attr;
     attrs.offset = offset;
     attrs.size = size;
-    attrs.flags = 0;
+    attrs.flags = flags;
 
     r = kvm_gmem_ioctl(guest_memfd, KVM_SET_MEMORY_ATTRIBUTES2, &attrs);
     if (r && r != -EAGAIN) {
@@ -1673,7 +1675,7 @@ static int guest_memfd_set_memory_attributes_fd(int guest_memfd, hwaddr offset,
  * through all the guest_memfd instances/MemoryRegions for a given range.
  */
 static int guest_memfd_set_memory_attributes(hwaddr start, uint64_t size,
-                                             uint64_t attr)
+                                             uint64_t attr, uint64_t flags)
 {
     int ret;
 
@@ -1705,7 +1707,8 @@ static int guest_memfd_set_memory_attributes(hwaddr start, uint64_t size,
         ret = guest_memfd_set_memory_attributes_fd(rb->guest_memfd,
                                                    convert_offset,
                                                    convert_size,
-                                                   attr);
+                                                   attr,
+                                                   flags);
         if (ret) {
             /*
              * TODO: this assumes that no partial changes are made if a failure
@@ -1729,19 +1732,26 @@ static int guest_memfd_set_memory_attributes(hwaddr start, uint64_t size,
     return ret;
 }
 
-int kvm_set_memory_attributes_private(hwaddr start, uint64_t size)
+int kvm_set_memory_attributes_private(hwaddr start, uint64_t size, bool preserve)
 {
     if (current_machine->cgs && current_machine->cgs->convert_in_place)
         return guest_memfd_set_memory_attributes(start, size,
-                                                 KVM_MEMORY_ATTRIBUTE_PRIVATE);
+                                                 KVM_MEMORY_ATTRIBUTE_PRIVATE,
+                                                 preserve ? KVM_SET_MEMORY_ATTRIBUTES2_PRESERVE
+                                                          : 0);
 
+    /*
+     * Legacy/non-inplace conversion paths use separate pages for shared vs.
+     * private, so 'preserve' semantics are always in effect and the flag
+     * is ignored.
+     */
     return kvm_set_memory_attributes(start, size, KVM_MEMORY_ATTRIBUTE_PRIVATE);
 }
 
 int kvm_set_memory_attributes_shared(hwaddr start, uint64_t size)
 {
     if (current_machine->cgs && current_machine->cgs->convert_in_place)
-        return guest_memfd_set_memory_attributes(start, size, 0);
+        return guest_memfd_set_memory_attributes(start, size, 0, 0);
 
     return kvm_set_memory_attributes(start, size, 0);
 }
@@ -1855,7 +1865,7 @@ static void kvm_set_phys_mem(KVMMemoryListener *kml,
         }
 
         if (memory_region_has_guest_memfd(mr)) {
-            err = kvm_set_memory_attributes_private(start_addr, slot_size);
+            err = kvm_set_memory_attributes_private(start_addr, slot_size, false);
             if (err) {
                 error_report("%s: failed to set memory attribute private: %s",
                              __func__, strerror(-err));
@@ -3181,6 +3191,7 @@ static int kvm_init(AccelState *as, MachineState *ms)
     kvm_guest_memfd_supported =
         kvm_vm_check_extension(s, KVM_CAP_GUEST_MEMFD) &&
         kvm_vm_check_extension(s, KVM_CAP_USER_MEMORY2);
+    kvm_supported_memory_attributes2_flags = kvm_vm_check_extension(s, KVM_CAP_MEMORY_ATTRIBUTES2_FLAGS);
     kvm_pre_fault_memory_supported = kvm_vm_check_extension(s, KVM_CAP_PRE_FAULT_MEMORY);
 
     if (cgs && cgs->convert_in_place) {
@@ -3540,7 +3551,7 @@ next_memory_region:
                    mr->size - section.offset_within_region : size;
 
     if (to_private) {
-        ret = kvm_set_memory_attributes_private(start, convert_size);
+        ret = kvm_set_memory_attributes_private(start, convert_size, false);
     } else {
         ret = kvm_set_memory_attributes_shared(start, convert_size);
     }
