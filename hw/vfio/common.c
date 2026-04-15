@@ -350,8 +350,8 @@ static void vfio_ram_discard_notify_discard(RamDiscardListener *rdl,
     /* Unmap with a single call. */
     ret = vfio_container_dma_unmap(bcontainer, iova, size , NULL);
     if (ret) {
-        error_report("%s: vfio_container_dma_unmap() failed: %s", __func__,
-                     strerror(-ret));
+        error_report("%s: vfio_container_dma_unmap() failed: %s. iova  = %lx, size = %lx",
+                     __func__, strerror(-ret), iova, size);
     }
 }
 

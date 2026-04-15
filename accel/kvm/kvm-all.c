@@ -3133,6 +3133,10 @@ next_memory_region:
     addr = memory_region_get_ram_ptr(mr) + section.offset_within_region;
     rb = qemu_ram_block_from_host(addr, false, &offset);
 
+    convert_start = section.offset_within_region;
+    convert_size = (convert_start + size > mr->size) ?
+                   mr->size - convert_start : size;
+
     if (to_private) {
         /*
          * The attributes need to be set to private *after* the notification
@@ -3142,20 +3146,20 @@ next_memory_region:
          * unmappings are done in advance.
          */
         ret = ram_block_attributes_state_change(RAM_BLOCK_ATTRIBUTES(mr->rdm),
-                                                offset, size, to_private);
+                                                offset, convert_size, to_private);
         if (ret) {
             error_report("Failed to notify the listener the state change of "
                          "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s, ret %d",
-                         start, size, to_private ? "private" : "shared", ret);
+                         start, convert_size, to_private ? "private" : "shared", ret);
             goto out_unref;
         }
 
-        ret = kvm_set_memory_attributes_private(start, size);
+        ret = kvm_set_memory_attributes_private(start, convert_size);
         if (ret) {
             goto out_unref;
         }
     } else {
-        ret = kvm_set_memory_attributes_shared(start, size);
+        ret = kvm_set_memory_attributes_shared(start, convert_size);
         if (ret) {
             goto out_unref;
         }
@@ -3168,18 +3172,14 @@ next_memory_region:
          * attributes set to shared.
          */
         ret = ram_block_attributes_state_change(RAM_BLOCK_ATTRIBUTES(mr->rdm),
-                                                offset, size, to_private);
+                                                offset, convert_size, to_private);
         if (ret) {
             error_report("Failed to notify the listener the state change of "
                          "(0x%"HWADDR_PRIx" + 0x%"HWADDR_PRIx") to %s, ret %d",
-                         start, size, to_private ? "private" : "shared", ret);
+                         start, convert_size, to_private ? "private" : "shared", ret);
             goto out_unref;
         }
     }
-
-    convert_start = section.offset_within_region;
-    convert_size = (convert_start + size > mr->size) ?
-                   mr->size - convert_start : size;
 
     /*
      * Discarding after conversion is generally done to avoid doubling of
