@@ -2136,6 +2136,7 @@ struct tsm_tdi_status {
         __u8 interface_report_digest[48];
         __u64 intf_report_counter;
         struct tdisp_interface_id id;
+        __u64 tdi_id;
 } QEMU_PACKED;
 
 static void tsm_helper(const char *helper, const char *param, const char *fn)
@@ -2229,20 +2230,18 @@ static void sev_tio_store_certs(VFIOPCIDevice *vdev, uint8_t flags,
 
     memset(&t[n], 0, sizeof(*t));
 }
-
-static uint8_t sev_tio_read_status(VFIOPCIDevice *vdev, const char *tsmhelper)
+static int sev_tio_read_status(VFIOPCIDevice *vdev, struct tsm_tdi_status *status,
+                               const char *tsmhelper)
 {
     char fn[128];
-    struct tsm_tdi_status status = {};
-    uint8_t ret = 0;
+    int ret;
 
     snprintf(fn, sizeof(fn) - 1,
              "/sys/bus/pci/devices/%04x:%02x:%02x.%01x/tsm/tdi_status",
              vdev->host.domain, vdev->host.bus, vdev->host.slot, vdev->host.function);
 
-    if (sizeof(status) <= read_full(fn, (uint8_t *) &status, sizeof(status))) {
-        ret = status.state;
-    } else {
+    ret = read_full(fn, (uint8_t *) status, sizeof(*status));
+    if (ret < sizeof(*status)) {
         vm_stop(RUN_STATE_INTERNAL_ERROR);
     }
     trace_sev_snp_tdi_status(vdev->vbasedev.name, ret);
@@ -2376,7 +2375,13 @@ static int kvm_handle_vmgexit_tio_req(SevCommonState *sev_common, struct kvm_use
     }
 
     if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_STATE) {
-        ex->tio_req.tdi_status = sev_tio_read_status(vdev, sev_common->tsm_helper);
+        struct tsm_tdi_status status = {};
+
+        ret = sev_tio_read_status(vdev, &status, sev_common->tsm_helper);
+        if (ret > 0) {
+            ex->tio_req.tdi_status = status.state;
+            ret = 0;
+        }
     }
 
 unmap_exit:
@@ -2442,7 +2447,13 @@ static int kvm_handle_vmgexit_tio_op(SevCommonState *sev_common, struct kvm_user
         }
         ex->tio_op.fw_err = fw_err;
         if (ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND) {
-            ex->tio_op.fw_tdi_id = 0x1234DEADBEEFULL; /* TODO: call TDI INFO first and copy the ID */
+            struct tsm_tdi_status status = {};
+
+            ret = sev_tio_read_status(VFIO_PCI(pdev), &status, sev_common->tsm_helper);
+            if (ret > 0) {
+                ex->tio_op.fw_tdi_id = status.tdi_id;
+                ret = 0;
+            }
         }
         trace_sev_tio_op(dom, bus, slot, func,
                          ex->tio_op.op == KVM_USER_SVM_VMGEXIT_SEV_TIO_OP_BIND ? "BIND" : "UNBIND",
