@@ -2356,6 +2356,11 @@ static int kvm_handle_vmgexit_tio_req(SevCommonState *sev_common, struct kvm_use
         }
     }
 
+    /* Trigger the data collection now so TDI_INFO digests are fresh */
+    if (ex->tio_req.data_npages) {
+        sev_tio_store_certs(vdev, ex->tio_req.flags, data, data_len, sev_common->tsm_helper);
+    }
+
     ret = tsmk->tsm_guest_request(pdev, req, 4096, rsp, 4096, &fw_err);
 
     ex->tio_req.fw_err = fw_err;
@@ -2368,10 +2373,6 @@ static int kvm_handle_vmgexit_tio_req(SevCommonState *sev_common, struct kvm_use
     }
     if (ret) {
         goto unmap_exit;
-    }
-
-    if (ex->tio_req.data_npages) {
-        sev_tio_store_certs(vdev, ex->tio_req.flags, data, data_len, sev_common->tsm_helper);
     }
 
     if (ex->tio_req.flags & KVM_USER_VMGEXIT_TIO_REQ_FLAG_PARAM_STATE) {
