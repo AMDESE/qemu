@@ -2241,9 +2241,6 @@ static int sev_tio_read_status(VFIOPCIDevice *vdev, struct tsm_tdi_status *statu
              vdev->host.domain, vdev->host.bus, vdev->host.slot, vdev->host.function);
 
     ret = read_full(fn, (uint8_t *) status, sizeof(*status));
-    if (ret < sizeof(*status)) {
-        vm_stop(RUN_STATE_INTERNAL_ERROR);
-    }
     trace_sev_snp_tdi_status(vdev->vbasedev.name, ret);
     tsm_helper(tsmhelper, "--tdi", fn);
 
@@ -2486,16 +2483,16 @@ int kvm_handle_vmgexit(struct kvm_run *run)
             if (sev_common->continue_on_failed_tdi_bind) {
                 ret = 0;
             } else {
+                warn_report("Stopping VM on failed TIO Req");
                 vm_stop(RUN_STATE_INTERNAL_ERROR);
-                warn_report("Stopping VM");
                 ret = 0;
             }
         }
     } else if (run->vmgexit.type == KVM_USER_VMGEXIT_TIO_OP) {
         ret = kvm_handle_vmgexit_tio_op(sev_common, &run->vmgexit);
         if (ret) {
+            warn_report("Stopping VM on failed TIO OP");
             vm_stop(RUN_STATE_INTERNAL_ERROR);
-            warn_report("Stopping VM");
         }
     } else {
         warn_report("KVM: unknown vmgexit type: %d", run->vmgexit.type);
