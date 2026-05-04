@@ -1394,7 +1394,12 @@ static void vfio_pci_fixup_msix_region(VFIOPCIDevice *vdev)
      */
     if (vfio_has_region_cap(&vdev->vbasedev, region->nr,
                             VFIO_REGION_INFO_CAP_MSIX_MAPPABLE)) {
-        return;
+        if (vdev->vbasedev.tee_io) {
+            warn_report("TEE-IO possible and DMABUF is incompatible with mapping MSIX, force sparse mapping");
+            // At this point VFIO has not read device caps
+        } else {
+            return;
+        }
     }
 
     /*
