@@ -3344,9 +3344,14 @@ static void kvm_eat_signals(CPUState *cpu)
  * non-RAM/ROM region that should be skipped as MMIO. In the latter case, the
  * 'skip' parameter will be set. Returns < 0 if the conversion request is not
  * valid.
+ *
+ * 'start' corresponds to the starting range memory_region_find() was
+ * called for, and is used to determine if there are any MMIO holes preceding
+ * the region passed in so the appropriate checks can be made on those
+ * ranges.
  */
 static int handle_memory_hole(MemoryRegionSection *section, bool to_private,
-                              bool *skip)
+                              hwaddr start, bool *skip)
 {
     MemoryRegion *mr = section->mr;
 
@@ -3389,6 +3394,16 @@ static int handle_memory_hole(MemoryRegionSection *section, bool to_private,
                          to_private ? "private" : "shared");
             return -EINVAL;
         }
+    }
+
+    /*
+     * At this point it has been determined that the region is itself
+     * can be processed as normal memory. However the caller still needs
+     * to know if there was a preceeding hole relative to 'start', so
+     * handle that case here.
+     */
+    if (start < section->offset_within_address_space && to_private) {
+        return -EINVAL;
     }
 
     *skip = false;
@@ -3475,7 +3490,7 @@ int kvm_convert_memory(hwaddr start, hwaddr size, bool to_private)
         assert(section_end > start);
         assert(section_end - start <= size);
 
-        ret = handle_memory_hole(&section, to_private, &skip);
+        ret = handle_memory_hole(&section, to_private, start, &skip);
         if (ret || skip) {
             memory_region_unref(section.mr);
             break;
