@@ -1277,8 +1277,17 @@ sev_snp_launch_update(SevSnpGuestState *sev_snp_guest,
                          ret, fw_error, fw_error_to_str(fw_error));
 
             if (data->type == KVM_SEV_SNP_PAGE_TYPE_CPUID) {
+                if (machine_require_guest_memfd_convert_in_place(
+                        MACHINE(qdev_get_machine()))) {
+                    ret = kvm_set_memory_attributes_shared(data->gpa, data->len);
+                    if (ret) {
+                        error_report("SEV-SNP: unable to access CPUID page to "
+                                     "check failure reasons");
+                        goto out;
+                    }
+                }
                 sev_snp_cpuid_report_mismatches(&snp_cpuid_info, data->hva);
-                error_report("SEV-SNP: failed update CPUID page");
+                error_report("SEV-SNP: failed to update CPUID page");
             }
             break;
         }
