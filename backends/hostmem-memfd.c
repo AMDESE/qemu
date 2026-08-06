@@ -19,6 +19,9 @@
 #include "qom/object.h"
 #include "migration/cpr.h"
 #include "system/kvm.h"
+#include "qapi/qapi-visit-common.h"
+#include "hw/core/boards.h"
+#include "hw/core/qdev.h"
 
 OBJECT_DECLARE_SIMPLE_TYPE(HostMemoryBackendMemfd, MEMORY_BACKEND_MEMFD)
 
@@ -35,7 +38,7 @@ struct HostMemoryBackendMemfd {
      * private pages.  Instead, this flag marks the memory backend will
      * 100% use the guest-memfd pages in-place.
      */
-    bool guest_memfd;
+    OnOffAuto guest_memfd;
 };
 
 static bool
@@ -43,6 +46,7 @@ memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
 {
     HostMemoryBackendMemfd *m = MEMORY_BACKEND_MEMFD(backend);
     g_autofree char *name = host_memory_backend_get_name(backend);
+    MachineState *machine = MACHINE(qdev_get_machine());
     int fd = cpr_find_fd(name, 0);
     uint32_t ram_flags;
 
@@ -55,7 +59,9 @@ memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
         goto have_fd;
     }
 
-    if (m->guest_memfd) {
+    if (m->guest_memfd == ON_OFF_AUTO_ON ||
+        (m->guest_memfd == ON_OFF_AUTO_AUTO &&
+         machine_require_guest_memfd_convert_in_place(machine))) {
         /*
          * NOTE: guest-memfd ignores seal=on/off because it always
          * implicitly seals the FD by definition.
@@ -91,16 +97,24 @@ have_fd:
                                           backend->size, ram_flags, fd, 0, errp);
 }
 
-static bool
-memfd_backend_get_guest_memfd(Object *o, Error **errp)
+static void
+memfd_backend_get_guest_memfd(Object *o, Visitor *v,
+                              const char *value, void *opaque,
+                              Error **errp)
 {
-    return MEMORY_BACKEND_MEMFD(o)->guest_memfd;
+    HostMemoryBackendMemfd *m = MEMORY_BACKEND_MEMFD(o);
+
+    visit_type_OnOffAuto(v, value, &m->guest_memfd, errp);
 }
 
 static void
-memfd_backend_set_guest_memfd(Object *o, bool value, Error **errp)
+memfd_backend_set_guest_memfd(Object *o, Visitor *v,
+                              const char *value, void *opaque,
+                              Error **errp)
 {
-    MEMORY_BACKEND_MEMFD(o)->guest_memfd = value;
+    HostMemoryBackendMemfd *m = MEMORY_BACKEND_MEMFD(o);
+
+    visit_type_OnOffAuto(v, value, &m->guest_memfd, errp);
 }
 
 static bool
@@ -191,9 +205,9 @@ memfd_backend_class_init(ObjectClass *oc, const void *data)
                                               "Huge pages size (ex: 2M, 1G)");
     }
 
-    object_class_property_add_bool(oc, "guest-memfd",
-                                   memfd_backend_get_guest_memfd,
-                                   memfd_backend_set_guest_memfd);
+    object_class_property_add(oc, "guest-memfd", "OnOffAuto",
+                              memfd_backend_get_guest_memfd,
+                              memfd_backend_set_guest_memfd, NULL, NULL);
     object_class_property_set_description(oc, "guest-memfd",
                                           "Use guest memfd");
 

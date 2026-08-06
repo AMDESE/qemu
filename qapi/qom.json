@@ -772,7 +772,8 @@
 #     resizing of the memory (default: true)
 #
 # @guest-memfd: if true, use guest-memfd to back the memory region.
-#     (default: false, since: 11.2)
+#     (default: true for Confidential VMs with in-place conversion,
+#     false otherwise, since: 11.2)
 #
 # Since: 2.12
 ##
@@ -781,7 +782,7 @@
   'data': { '*hugetlb': 'bool',
             '*hugetlbsize': 'size',
             '*seal': 'bool',
-            '*guest-memfd': 'bool' },
+            '*guest-memfd': 'OnOffAuto' },
   'if': 'CONFIG_LINUX' }
 
 ##
