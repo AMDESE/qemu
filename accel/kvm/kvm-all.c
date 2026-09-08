@@ -4857,7 +4857,8 @@ void kvm_mark_guest_state_protected(void)
     kvm_state->guest_state_protected = true;
 }
 
-int kvm_create_guest_memfd(uint64_t size, uint64_t flags, Error **errp)
+static int kvm_create_guest_memfd_flags(uint64_t size, uint64_t flags,
+                                        Error **errp)
 {
     int fd;
     struct kvm_create_guest_memfd guest_memfd = {
@@ -4898,6 +4899,27 @@ int kvm_create_guest_memfd(uint64_t size, uint64_t flags, Error **errp)
     return fd;
 }
 
+int kvm_create_guest_memfd(uint64_t size, Error **errp)
+{
+    /*
+     * There isn't currently any use for non-mmap()'able gmem instances
+     * outside of kvm_create_guest_memfd_private(), so hardcode it here
+     * for general use.
+     *
+     * Additionally, *_INIT_SHARED is needed for non-confidential VMs, and
+     * confidential VMs will default to this as well to allow similar flows
+     * for initializing the VM's initial memory contents as with normal
+     * guests. In the future, the initial state may become a global policy
+     * decision based on the confidential VM configuration, in which case
+     * this would likely be the right place to decide whether or not to set
+     * the flag since it would likely be a globally-configured option.
+     */
+    return kvm_create_guest_memfd_flags(size,
+                                        GUEST_MEMFD_FLAG_MMAP |
+                                        GUEST_MEMFD_FLAG_INIT_SHARED,
+                                        errp);
+}
+
 int kvm_create_guest_memfd_private(uint64_t size, Error **errp)
 {
     if (!(kvm_supported_memory_attributes & KVM_MEMORY_ATTRIBUTE_PRIVATE)) {
@@ -4905,5 +4927,5 @@ int kvm_create_guest_memfd_private(uint64_t size, Error **errp)
         return -1;
     }
 
-    return kvm_create_guest_memfd(size, 0, errp);
+    return kvm_create_guest_memfd_flags(size, 0, errp);
 }

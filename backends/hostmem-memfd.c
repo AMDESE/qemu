@@ -19,7 +19,6 @@
 #include "qom/object.h"
 #include "migration/cpr.h"
 #include "system/kvm.h"
-#include <linux/kvm.h>
 
 OBJECT_DECLARE_SIMPLE_TYPE(HostMemoryBackendMemfd, MEMORY_BACKEND_MEMFD)
 
@@ -69,10 +68,7 @@ memfd_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
             return false;
         }
 
-        fd = kvm_create_guest_memfd(backend->size,
-                                    GUEST_MEMFD_FLAG_MMAP |
-                                    GUEST_MEMFD_FLAG_INIT_SHARED,
-                                    errp);
+        fd = kvm_create_guest_memfd(backend->size, errp);
     } else {
         fd = qemu_memfd_create(TYPE_MEMORY_BACKEND_MEMFD, backend->size,
                                m->hugetlb, m->hugetlbsize, m->seal ?
