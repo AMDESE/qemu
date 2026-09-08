@@ -274,6 +274,13 @@ typedef struct IOMMUTLBEvent {
  */
 #define RAM_PRIVATE (1 << 13)
 
+/*
+ * RAM is backed by a guest-memfd instance that supports being used as shared
+ * memory (as opposed to RAM_GUEST_MEMFD_PRIVATE which, by itself, entails
+ * the guest-memfd instance can only ever be used for private memory).
+ */
+#define RAM_GUEST_MEMFD_SHAREABLE   (1 << 14)
+
 static inline void iommu_notifier_init(IOMMUNotifier *n, IOMMUNotify fn,
                                        IOMMUNotifierFlag flags,
                                        hwaddr start, hwaddr end,
