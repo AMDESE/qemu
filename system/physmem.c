@@ -59,6 +59,7 @@
 #include "system/hostmem.h"
 #include "system/hw_accel.h"
 #include "system/xen-mapcache.h"
+#include "system/confidential-guest-support.h"
 #include "trace.h"
 
 #ifdef CONFIG_FALLOCATE_PUNCH_HOLE
@@ -2185,6 +2186,8 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
     if (new_block->flags & RAM_GUEST_MEMFD_PRIVATE) {
         int ret;
 
+        assert(current_machine->cgs);
+
         if (!kvm_enabled()) {
             error_setg(errp, "cannot set up private guest memory for %s: KVM required",
                        object_get_typename(OBJECT(current_machine->cgs)));
@@ -2208,10 +2211,43 @@ static void ram_block_add(RAMBlock *new_block, Error **errp)
             goto out_free;
         }
 
-        new_block->guest_memfd_private =
-            kvm_create_guest_memfd_private(new_block->max_length, errp);
+        /*
+         * If both shared/private memory are handled by guest_memfd, make sure
+         * to re-use the guest_memfd inode that should have already been created
+         * for handling shared memory.
+         */
+        if (machine_require_guest_memfd_convert_in_place(current_machine)) {
+            if (!(new_block->flags & RAM_GUEST_MEMFD_SHARED)) {
+                error_setg(errp, "configured memory backend is not compatible"
+                                 " with in-place conversion");
+                qemu_mutex_unlock_ramlist();
+                goto out_free;
+            }
+            assert(new_block->fd >= 0);
+
+            /*
+             * Current logic calculates guest_memfd_offset on the assumption
+             * that offset 0 corresponds to the first GPA that is backed by the
+             * RAM block/backend. For cases where the guest_memfd is only used
+             * for private memory and created internally as-needed this is
+             * always the case, but when re-using a guest_memfd that's also
+             * usable for shared memory (e.g. via memory-backend-guest-memfd)
+             * it's possible that guest_memfd might be mmap()'d starting at some
+             * non-zero offset. For now, this isn't a reachable condition, but
+             * assert this in case this ever changes and the logic needs to be
+             * updated to account for this.
+             */
+            assert(new_block->fd_offset == 0);
+
+            new_block->guest_memfd_private = qemu_dup(new_block->fd);
+        } else {
+            new_block->guest_memfd_private =
+                kvm_create_guest_memfd_private(new_block->max_length, errp);
+        }
+
         if (new_block->guest_memfd_private < 0) {
             qemu_mutex_unlock_ramlist();
+            error_setg(errp, "failed to create guest_memfd instance.");
             goto out_free;
         }
 
@@ -2320,7 +2356,7 @@ RAMBlock *qemu_ram_alloc_from_fd(ram_addr_t size, ram_addr_t max_size,
     assert((ram_flags & ~(RAM_SHARED | RAM_PMEM | RAM_NORESERVE |
                           RAM_PROTECTED | RAM_NAMED_FILE | RAM_READONLY |
                           RAM_READONLY_FD | RAM_GUEST_MEMFD_PRIVATE |
-                          RAM_RESIZEABLE)) == 0);
+                          RAM_RESIZEABLE | RAM_GUEST_MEMFD_SHARED)) == 0);
     assert(max_size >= size);
 
     if (xen_enabled()) {
@@ -2831,6 +2867,12 @@ found:
 int ram_block_rebind(Error **errp)
 {
     RAMBlock *block;
+
+    if (machine_require_guest_memfd_convert_in_place(current_machine)) {
+        error_setg(errp,
+                   "rebind support is not yet enabled for in-place conversion");
+        return -1;
+    }
 
     qemu_mutex_lock_ramlist();
 
