@@ -92,6 +92,18 @@ struct ConfidentialGuestSupport {
      * so 'ready' is not set, we'll abort.
      */
     bool ready;
+
+    /*
+     * CGS implementations will use this to indicate whether or not
+     * to enable in-place conversion for guest-memfd.
+     *
+     * If set, the machine re-uses physical pages when converting
+     * between shared/private (as opposed to using different
+     * physical pages depending on the access type, which is the
+     * default mode when 'require_guest_memfd' is set without
+     * additionally setting this flag).
+     */
+    bool convert_in_place;
 };
 
 typedef struct ConfidentialGuestSupportClass {
