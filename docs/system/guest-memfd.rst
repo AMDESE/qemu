@@ -53,6 +53,27 @@ exposed as an experimental for the time being:
  * guest_memfd does not currently support the hugetlb=on option
  * guest_memfd does not currently support Transparent Huge Pages
 
+In-place conversion
+-------------------
+
+Newer kernels now support using a guest-memfd instance for both
+private and shared memory at the same time by re-using the same
+physical backing pages if a guest converts a GPA range between
+shared and private. This is known as "in-place conversion".
+
+For some confidential computing architectures, like SEV-SNP and
+TDX, this mode offers better performance due to not needing to
+deallocate/reallocate between 2 separate pools of shared vs. private
+memory every time the guest converts memory between shared/private.
+For other architectures, this is the only supported mode of
+operation.
+
+When in-place conversion is enabled, it is necessary to use the
+memory-backend-memfd backend with guest-memfd=on as shown in the
+"Usage" section. Because of this, guest-memfd=auto (which is the
+default) will result in the parameter being automatically enabled
+if the confidential guest type enables in-place conversion.
+
 References
 ----------
 
